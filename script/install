@@ -6,6 +6,8 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 "$root/script/build"
 
 osascript -e 'quit app "FastScan"' 2>/dev/null || true
+# quit returns before the app exits; opening during shutdown fails with LaunchServices error -600.
+for _ in $(seq 50); do pgrep -xq FastScan || break; sleep 0.1; done
 rm -rf /Applications/FastScan.app
 ditto "$root/build/FastScan.app" /Applications/FastScan.app
 echo "Installed /Applications/FastScan.app"
