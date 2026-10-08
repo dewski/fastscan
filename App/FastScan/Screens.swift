@@ -194,13 +194,11 @@ final class FailedScreen: HeroScreen {
 }
 
 /// Starting the scanner and feeding the first page take seconds with nothing to count, so a
-/// spinner holds the stack's place until the first page lands; after that a small one beside
-/// the status shows the feeder is still going.
+/// spinner holds the stack's place until the first page lands.
 final class ScanningScreen: HeroScreen {
     private let stack = PageStackView()
     private let counter = Typeface.label("0", font: .monospacedDigitSystemFont(ofSize: 44, weight: .semibold), color: .labelColor, tracking: -0.5)
     private let startSpinner = Spinner(size: .regular)
-    private let feedSpinner = Spinner(size: .small)
     private let status = Typeface.body("")
     private var shown = 0
 
@@ -213,12 +211,11 @@ final class ScanningScreen: HeroScreen {
             startSpinner.centerYAnchor.constraint(equalTo: hero.centerYAnchor),
         ])
         (status as? StyledLabel)?.singleLine(.byTruncatingTail)
-        let statusLine = hstack([feedSpinner, status], spacing: 6)
-        textStack.setViews([counter, statusLine], in: .top)
+        textStack.setViews([counter, status], in: .top)
         textStack.spacing = 2
         textStack.alignment = .centerX
         counter.widthAnchor.constraint(equalTo: textStack.widthAnchor).isActive = true
-        statusLine.widthAnchor.constraint(lessThanOrEqualTo: textStack.widthAnchor).isActive = true
+        status.widthAnchor.constraint(lessThanOrEqualTo: textStack.widthAnchor).isActive = true
         setSingleAction(PillButton("Stop", role: .secondary, target: target, action: #selector(ScanWindowController.stop)))
         stack.setPages(context.thumbnails)
         shown = context.thumbnails.count
@@ -234,8 +231,6 @@ final class ScanningScreen: HeroScreen {
         }
         counter.isHidden = pages == 0
         startSpinner.isSpinning = pages == 0
-        feedSpinner.isSpinning = pages > 0
-        feedSpinner.isHidden = pages == 0
         for image in context.thumbnails.dropFirst(shown) { stack.drop(image) }
         shown = context.thumbnails.count
         if counter.stringValue != "\(pages)" {
