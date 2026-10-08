@@ -40,6 +40,10 @@ The screenshots use a made-up invoice and family folder.
 
 FastScan drives the scanner through SANE's `epsonds` backend. It crops each page, drops blank sides, and reads the text with Vision. Apple's Foundation Models framework then chooses a destination from the folders that best match the page.
 
+## Download
+
+Get the latest `FastScan-<version>.zip` from [Releases](https://github.com/dewski/fastscan/releases). It needs a Mac with Apple silicon on macOS 26 or later, an Epson FastFoto FF-680W on your Wi-Fi, and `brew install sane-backends`. The release notes walk through the first launch.
+
 ## Requirements
 
 - macOS 26 or later on Apple silicon, Xcode 27. Filing suggestions use Apple Intelligence (Foundation Models) when it is available, and a built-in heuristic when it isn't. Photos captions go into Photos' caption field on macOS 27.
@@ -58,6 +62,8 @@ script/install
 ```
 
 `script/install` builds the app, replaces `/Applications/FastScan.app`, and opens it. Use `script/build` alone to build into `build/FastScan.app` without installing.
+
+To cut a release, set `MARKETING_VERSION` in `project.yml`, update `docs/release-notes.md`, commit, and run `script/release --publish`. It builds the app, zips it into `dist/` with a SHA-256 checksum, and creates the GitHub release `v<version>`. Without `--publish` it only packages.
 
 `script/build` generates `FastScan.xcodeproj` from `project.yml` and builds a Release app at `build/FastScan.app`. The app is signed ad hoc with hardened runtime off. Library validation would refuse Homebrew's `libsane`.
 

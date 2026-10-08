@@ -1,0 +1,32 @@
+#!/bin/bash
+# Builds FastScan and packages it as dist/FastScan-<version>.zip with a SHA-256 checksum.
+# The version comes from MARKETING_VERSION in project.yml. Pass --publish to create the
+# GitHub release v<version> with the zip attached and docs/release-notes.md as its body.
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$root"
+
+version="$(sed -n 's/^ *MARKETING_VERSION: "\(.*\)"/\1/p' project.yml)"
+[ -n "$version" ] || { echo "MARKETING_VERSION not found in project.yml" >&2; exit 1; }
+
+script/build
+
+app="build/FastScan.app"
+built="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")"
+[ "$built" = "$version" ] || { echo "built app says $built, project.yml says $version" >&2; exit 1; }
+
+mkdir -p dist
+zip="dist/FastScan-$version.zip"
+rm -f "$zip"
+# ditto keeps the bundle's symlinks, extended attributes, and code signature intact.
+ditto -c -k --sequesterRsrc --keepParent "$app" "$zip"
+(cd dist && shasum -a 256 "FastScan-$version.zip" > "FastScan-$version.zip.sha256")
+echo "Packaged $root/$zip"
+cat "dist/FastScan-$version.zip.sha256"
+
+if [ "${1:-}" = "--publish" ]; then
+    git diff --quiet HEAD || { echo "commit your changes before publishing" >&2; exit 1; }
+    gh release create "v$version" "$zip" "dist/FastScan-$version.zip.sha256" \
+        --title "FastScan $version" --notes-file docs/release-notes.md --target "$(git rev-parse HEAD)"
+fi

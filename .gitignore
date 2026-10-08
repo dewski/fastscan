@@ -9,3 +9,4 @@ DerivedData/
 !App/FastScan/Assets.xcassets/**/*.png
 .claude/
 !docs/screenshots/*.png
+dist/
