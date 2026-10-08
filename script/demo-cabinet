@@ -1,0 +1,74 @@
+#!/bin/bash
+# Creates a fictional family filing cabinet, "Rivera Family", for screenshots and demos: empty
+# folders and zero-byte files whose names follow the patterns FastScan learns from, such as dated
+# event folders under Services. None of it is real.
+# Usage: script/demo-cabinet <parent-dir>   (creates <parent-dir>/Rivera Family)
+set -euo pipefail
+
+parent="${1:?usage: demo-cabinet <parent-dir>}"
+case "$parent" in
+    *"/Library/Mobile Documents"*) echo "refusing: $parent is in iCloud Drive" >&2; exit 1 ;;
+esac
+cabinet="$parent/Rivera Family"
+
+files=(
+    "Vehicles/2021 Subaru Outback/Purchase/Bill of Sale.pdf"
+    "Vehicles/2021 Subaru Outback/Purchase/Window Sticker.pdf"
+    "Vehicles/2021 Subaru Outback/Registration/2025 Registration.pdf"
+    "Vehicles/2021 Subaru Outback/Registration/2026 Registration.pdf"
+    "Vehicles/2021 Subaru Outback/Services/2024-03-14 Oil Change/Receipt.pdf"
+    "Vehicles/2021 Subaru Outback/Services/2025-04-02 10,000 Mile Service/Invoice.pdf"
+    "Vehicles/2021 Subaru Outback/Services/2025-11-18 20,000 Mile Service/Invoice.pdf"
+    "Vehicles/2021 Subaru Outback/Tires/Tire Rack Order.pdf"
+    "Vehicles/2018 Toyota Tacoma/Registration/2026 Registration.pdf"
+    "Vehicles/2018 Toyota Tacoma/Services/2024-06-20 60,000 Mile Service/Invoice.pdf"
+    "Vehicles/2018 Toyota Tacoma/Services/2025-08-09 Brake Job/Invoice.pdf"
+    "Vehicles/2018 Toyota Tacoma/Services/2026-02-11 Timing Belt/Estimate.pdf"
+    "Vehicles/2018 Toyota Tacoma/Title.pdf"
+    "Homes/742 Juniper Hollow Ln/Purchase/Closing Disclosure.pdf"
+    "Homes/742 Juniper Hollow Ln/Purchase/Inspection Report.pdf"
+    "Homes/742 Juniper Hollow Ln/Taxes/2025 Property Tax.pdf"
+    "Homes/742 Juniper Hollow Ln/Taxes/2026 Property Tax.pdf"
+    "Homes/742 Juniper Hollow Ln/Repairs/2025-07-15 Water Heater/Invoice.pdf"
+    "Homes/742 Juniper Hollow Ln/Repairs/2026-01-22 Roof Leak/Invoice.pdf"
+    "Homes/742 Juniper Hollow Ln/Utilities/Water Bill.pdf"
+    "Homes/742 Juniper Hollow Ln/Utilities/Electric Bill.pdf"
+    "Homes/742 Juniper Hollow Ln/Appliances/Dishwasher Manual.pdf"
+    "Homes/742 Juniper Hollow Ln/Appliances/Furnace Warranty.pdf"
+    "Medical/Alex/2025-09-12 Annual Physical/Results.pdf"
+    "Medical/Alex/2026-03-04 Dermatology/Visit Summary.pdf"
+    "Medical/Sam/2025-05-20 Annual Physical/Results.pdf"
+    "Medical/Sam/Prescriptions/Glasses Prescription.pdf"
+    "Medical/Maya/2025-08-28 Well Child Visit/Visit Summary.pdf"
+    "Medical/Maya/Immunizations/Immunization Record.pdf"
+    "Medical/Dental/2025-10-14 Cleaning/Statement.pdf"
+    "Dogs/Biscuit/2025-06-01 Annual Exam/Invoice.pdf"
+    "Dogs/Biscuit/2026-02-17 Dental Cleaning/Invoice.pdf"
+    "Dogs/Biscuit/Adoption/Adoption Contract.pdf"
+    "Dogs/Biscuit/Vaccines/Rabies Certificate.pdf"
+    "Insurance/Auto/2026 Policy.pdf"
+    "Insurance/Home/2026 Policy.pdf"
+    "Insurance/Life/Term Life Policy.pdf"
+    "Insurance/Umbrella/2026 Policy.pdf"
+    "Taxes/2024/Federal Return.pdf"
+    "Taxes/2024/W-2 Alex.pdf"
+    "Taxes/2025/Federal Return.pdf"
+    "Taxes/2025/W-2 Sam.pdf"
+    "Receipts/Electronics/MacBook Air.pdf"
+    "Receipts/Furniture/Dining Table.pdf"
+    "Receipts/Tools/Table Saw.pdf"
+    "School/Maya/2025-2026 Report Cards/Fall Report Card.pdf"
+    "School/Maya/Enrollment/Enrollment Form.pdf"
+    "Travel/2025-07 Lake Tahoe/Cabin Rental.pdf"
+    "Travel/Passports/Passport Renewal Receipt.pdf"
+    "Banking/Credit Union/Account Agreement.pdf"
+    "Identity/Birth Certificates/Maya.pdf"
+)
+
+for file in "${files[@]}"; do
+    mkdir -p "$cabinet/$(dirname "$file")"
+    touch "$cabinet/$file"
+done
+mkdir -p "$cabinet/Inbox"
+
+echo "created $(find "$cabinet" -type d | wc -l | tr -d ' ') folders and $(find "$cabinet" -type f | wc -l | tr -d ' ') files in $cabinet"

@@ -1,0 +1,14 @@
+#!/bin/bash
+# Generates the Xcode project and builds FastScan.app into build/FastScan.app.
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$root"
+
+xcodegen generate --quiet
+xcodebuild -project FastScan.xcodeproj -scheme FastScan -configuration Release \
+    -derivedDataPath build/DerivedData -destination 'platform=macOS,arch=arm64' build -quiet
+
+rm -rf build/FastScan.app
+cp -R build/DerivedData/Build/Products/Release/FastScan.app build/FastScan.app
+echo "Built $root/build/FastScan.app"

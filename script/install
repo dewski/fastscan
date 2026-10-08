@@ -1,0 +1,12 @@
+#!/bin/bash
+# Builds FastScan and installs it to /Applications, replacing any running copy.
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/.." && pwd)"
+"$root/script/build"
+
+osascript -e 'quit app "FastScan"' 2>/dev/null || true
+rm -rf /Applications/FastScan.app
+ditto "$root/build/FastScan.app" /Applications/FastScan.app
+echo "Installed /Applications/FastScan.app"
+open /Applications/FastScan.app

@@ -1,0 +1,379 @@
+#!/usr/bin/env swift
+// Renders a fictional duplex scan for screenshots and demos: page-001.png .. page-004.png, the fronts
+// and backs of a two-sheet auto service invoice. Every name, address, number, and VIN is made up.
+// Each page is a 300 dpi frame the way the FF-680W returns it: a short leading edge, the paper, a
+// trailing-edge shadow, a band of gray backing, then pure white fill, so PageProcessor.crop works on it.
+// Usage: script/render-demo-pages <output-dir>
+import CoreGraphics
+import CoreText
+import Foundation
+import ImageIO
+import UniformTypeIdentifiers
+
+let dpi: CGFloat = 300
+let frame = (width: 2544, height: 4642)
+let paperTop = 12, paperHeight = 3300, shadowHeight = 12, backingHeight = 105
+
+func gray(_ level: CGFloat) -> CGColor { CGColor(srgbRed: level, green: level, blue: level, alpha: 1) }
+func rgb(_ hex: UInt32, _ alpha: CGFloat = 1) -> CGColor {
+    CGColor(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255,
+            blue: CGFloat(hex & 0xFF) / 255, alpha: alpha)
+}
+
+let ink = rgb(0x26262A)
+let rule = rgb(0x55555C)
+let teal = rgb(0x1E7A78)
+let amber = rgb(0xE59A2F)
+let stampRed = rgb(0xC0302A, 0.82)
+
+/// Draws on a US Letter page in points, top-down, the way a form is laid out.
+struct Pen {
+    let context: CGContext
+    let pageHeight: CGFloat = 792
+
+    func y(_ top: CGFloat) -> CGFloat { pageHeight - top }
+
+    @discardableResult
+    func text(_ string: String, _ x: CGFloat, _ top: CGFloat, size: CGFloat = 8.5, font: String = "Menlo-Regular",
+              color: CGColor = ink, align: CGFloat = 0, tracking: CGFloat = 0) -> CGFloat {
+        let ctFont = CTFontCreateWithName(font as CFString, size, nil)
+        let attributes: [NSAttributedString.Key: Any] = [
+            .init(kCTFontAttributeName as String): ctFont, .init(kCTForegroundColorAttributeName as String): color,
+            .init(kCTKernAttributeName as String): tracking,
+        ]
+        let line = CTLineCreateWithAttributedString(NSAttributedString(string: string, attributes: attributes))
+        let width = CTLineGetTypographicBounds(line, nil, nil, nil)
+        context.textPosition = CGPoint(x: x - CGFloat(width) * align, y: y(top) - CTFontGetAscent(ctFont))
+        CTLineDraw(line, context)
+        return CGFloat(width)
+    }
+
+    func line(_ x1: CGFloat, _ top1: CGFloat, _ x2: CGFloat, _ top2: CGFloat, width: CGFloat = 0.6, color: CGColor = rule) {
+        context.setStrokeColor(color)
+        context.setLineWidth(width)
+        context.move(to: CGPoint(x: x1, y: y(top1)))
+        context.addLine(to: CGPoint(x: x2, y: y(top2)))
+        context.strokePath()
+    }
+
+    func box(_ x: CGFloat, _ top: CGFloat, _ width: CGFloat, _ height: CGFloat, width lineWidth: CGFloat = 0.6, fill: CGColor? = nil) {
+        let rect = CGRect(x: x, y: y(top + height), width: width, height: height)
+        if let fill {
+            context.setFillColor(fill)
+            context.fill(rect)
+        }
+        context.setStrokeColor(rule)
+        context.setLineWidth(lineWidth)
+        context.stroke(rect)
+    }
+
+    /// Wraps `string` to `width` points in the body font and returns the top of the next line.
+    func paragraph(_ string: String, _ x: CGFloat, _ top: CGFloat, width: CGFloat, size: CGFloat, leading: CGFloat,
+                   font: String = "Menlo-Regular") -> CGFloat {
+        let ctFont = CTFontCreateWithName(font as CFString, size, nil)
+        let advance = CTFontGetAdvancesForGlyphs(ctFont, .horizontal, [CTFontGetGlyphWithName(ctFont, "M" as CFString)], nil, 1)
+        let perLine = max(10, Int(width / CGFloat(advance)))
+        var lines: [String] = [], current = ""
+        for word in string.split(separator: " ") {
+            if current.count + word.count + 1 > perLine, !current.isEmpty {
+                lines.append(current)
+                current = ""
+            }
+            current += current.isEmpty ? String(word) : " \(word)"
+        }
+        if !current.isEmpty { lines.append(current) }
+        var top = top
+        for line in lines {
+            text(line, x, top, size: size, font: font)
+            top += leading
+        }
+        return top
+    }
+}
+
+func logo(_ pen: Pen, x: CGFloat, top: CGFloat, size: CGFloat) {
+    let context = pen.context
+    let rect = CGRect(x: x, y: pen.y(top + size), width: size, height: size)
+    context.saveGState()
+    context.addEllipse(in: rect)
+    context.clip()
+    context.setFillColor(teal)
+    context.fill(rect)
+    context.setFillColor(amber)
+    context.fillEllipse(in: CGRect(x: rect.midX + size * 0.04, y: rect.midY + size * 0.02, width: size * 0.3, height: size * 0.3))
+    context.setFillColor(rgb(0xF4F1E8))
+    let peaks: [(CGFloat, CGFloat)] = [(0, 0.28), (0.3, 0.62), (0.45, 0.48), (0.62, 0.7), (1, 0.3)]
+    context.move(to: CGPoint(x: rect.minX, y: rect.minY))
+    for (px, py) in peaks { context.addLine(to: CGPoint(x: rect.minX + size * px, y: rect.minY + size * py)) }
+    context.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+    context.fillPath()
+    context.restoreGState()
+    context.setStrokeColor(teal)
+    context.setLineWidth(1.2)
+    context.strokeEllipse(in: rect.insetBy(dx: -2.5, dy: -2.5))
+}
+
+func stamp(_ pen: Pen, centerX: CGFloat, centerTop: CGFloat) {
+    let context = pen.context
+    context.saveGState()
+    context.translateBy(x: centerX, y: pen.y(centerTop))
+    context.rotate(by: 0.21)
+    context.setStrokeColor(stampRed)
+    context.setLineWidth(2.4)
+    context.stroke(CGRect(x: -78, y: -30, width: 156, height: 60))
+    context.setLineWidth(0.9)
+    context.stroke(CGRect(x: -72, y: -24, width: 144, height: 48))
+    // Shifted so the stamp's center is the pen's (0, 0).
+    context.translateBy(x: 0, y: -pen.pageHeight)
+    pen.text("PAID", 0, -21, size: 24, font: "Helvetica-Bold", color: stampRed, align: 0.5, tracking: 4)
+    pen.text("07 OCT 2026", 0, 8, size: 9, font: "Helvetica-Bold", color: stampRed, align: 0.5, tracking: 1.5)
+    context.restoreGState()
+}
+
+let left: CGFloat = 40, right: CGFloat = 572
+
+func header(_ pen: Pen, page: Int) {
+    logo(pen, x: left, top: 38, size: 54)
+    pen.text("SIERRA RIDGE AUTO CARE", left + 68, 40, size: 17, font: "Helvetica-Bold", color: teal, tracking: 0.6)
+    pen.text("Independent Subaru & Import Service", left + 68, 60, size: 8.5, font: "Helvetica-Oblique")
+    pen.text("1480 Granite Bay Road  Truckee, CA 96161", left + 68, 73, size: 8)
+    pen.text("(530) 555-0142    sierraridgeautocare.com", left + 68, 84, size: 8)
+
+    pen.box(404, 36, 168, 60, width: 0.9)
+    pen.text("REPAIR ORDER / INVOICE", 488, 42, size: 9, font: "Menlo-Bold", align: 0.5)
+    pen.line(404, 55, 572, 55)
+    pen.text("NO.", 410, 60, size: 8)
+    pen.text("0048213", 566, 60, size: 8, font: "Menlo-Bold", align: 1)
+    pen.text("DATE", 410, 71, size: 8)
+    pen.text("07 OCT 2026", 566, 71, size: 8, font: "Menlo-Bold", align: 1)
+    pen.text("PAGE", 410, 82, size: 8)
+    pen.text("\(page) OF 2", 566, 82, size: 8, align: 1)
+}
+
+func customerBlock(_ pen: Pen) {
+    pen.box(left, 106, 260, 74)
+    pen.text("CUSTOMER", left + 6, 110, size: 6.5, font: "Menlo-Bold")
+    pen.text("ALEX RIVERA", left + 6, 122, size: 9, font: "Menlo-Bold")
+    pen.text("742 JUNIPER HOLLOW LN", left + 6, 135, size: 8.5)
+    pen.text("GRASS VALLEY, CA 95945", left + 6, 147, size: 8.5)
+    pen.text("HOME (530) 555-0187", left + 6, 162, size: 8)
+
+    pen.box(312, 106, 260, 74)
+    pen.text("VEHICLE", 318, 110, size: 6.5, font: "Menlo-Bold")
+    pen.text("2021 SUBARU OUTBACK LIMITED", 318, 122, size: 9, font: "Menlo-Bold")
+    pen.text("VIN    4S4DEMXXXM0000000", 318, 135, size: 8.5)
+    pen.text("PLATE  DEMO 123    COLOR  AUTUMN GREEN", 318, 147, size: 8)
+    pen.text("MILES IN 30,118    MILES OUT 30,121", 318, 162, size: 8)
+
+    let columns: [(String, String)] = [("ADVISOR", "J. OKAFOR"), ("TECH", "214"), ("OPENED", "07OCT26 07:42"), ("READY", "07OCT26 15:10"), ("TAG", "T-58")]
+    pen.box(left, 188, right - left, 26)
+    var x = left
+    for (index, (label, value)) in columns.enumerated() {
+        if index > 0 { pen.line(x, 188, x, 214) }
+        pen.text(label, x + 6, 192, size: 6.5, font: "Menlo-Bold")
+        pen.text(value, x + 6, 202, size: 8.5)
+        x += (right - left) / CGFloat(columns.count)
+    }
+}
+
+struct Item {
+    var code: String
+    var description: String
+    var quantity: String = ""
+    var amount: String = ""
+}
+
+func table(_ pen: Pen, top: CGFloat, sections: [(title: String, items: [Item])], bottom: CGFloat) {
+    pen.box(left, top, right - left, bottom - top)
+    pen.box(left, top, right - left, 16, fill: rgb(0xE7E3D8))
+    let columns: [CGFloat] = [left, left + 70, 452, 500]
+    for x in columns.dropFirst() { pen.line(x, top, x, bottom) }
+    pen.text("CODE", left + 6, top + 4, size: 7, font: "Menlo-Bold")
+    pen.text("DESCRIPTION", left + 76, top + 4, size: 7, font: "Menlo-Bold")
+    pen.text("QTY/HRS", 476, top + 4, size: 7, font: "Menlo-Bold", align: 0.5)
+    pen.text("AMOUNT", 566, top + 4, size: 7, font: "Menlo-Bold", align: 1)
+    var row = top + 24
+    for section in sections {
+        pen.text(section.title, left + 76, row, size: 9, font: "Menlo-Bold")
+        row += 14
+        for item in section.items {
+            pen.text(item.code, left + 6, row, size: 8)
+            pen.text(item.description, left + 76, row, size: 8)
+            pen.text(item.quantity, 494, row, size: 8, align: 1)
+            pen.text(item.amount, 566, row, size: 8, align: 1)
+            row += 12
+        }
+        row += 4
+        pen.line(left + 70, row - 2, right, row - 2, width: 0.3)
+        row += 8
+    }
+}
+
+func frontOne(_ pen: Pen) {
+    header(pen, page: 1)
+    customerBlock(pen)
+    let sections: [(String, [Item])] = [
+        ("A  30,000 MILE SERVICE", [
+            Item(code: "LS30K", description: "FACTORY SCHEDULED MAINTENANCE PER OWNER MANUAL", quantity: "2.4", amount: "312.00"),
+            Item(code: "15208AA170", description: "OIL FILTER", quantity: "1", amount: "14.95"),
+            Item(code: "SOA427V1", description: "0W-20 SYNTHETIC ENGINE OIL QT", quantity: "5", amount: "54.75"),
+            Item(code: "16546AA12A", description: "ENGINE AIR FILTER", quantity: "1", amount: "31.40"),
+            Item(code: "72880FL00A", description: "CABIN AIR FILTER", quantity: "1", amount: "38.20"),
+            Item(code: "", description: "ROTATE AND BALANCE 4 TIRES, SET PRESSURES 35 PSI"),
+            Item(code: "", description: "INSPECT BRAKE PADS F 7MM R 6MM, ROTORS WITHIN SPEC"),
+            Item(code: "", description: "INSPECT CV BOOTS, STEERING, SUSPENSION, EXHAUST - OK"),
+        ]),
+        ("B  BRAKE FLUID EXCHANGE", [
+            Item(code: "BFX", description: "FLUSH AND REPLACE BRAKE FLUID, BLEED ALL 4 WHEELS", quantity: "0.8", amount: "104.00"),
+            Item(code: "SOA868V9", description: "DOT 3 BRAKE FLUID 12 OZ", quantity: "2", amount: "17.90"),
+        ]),
+        ("C  MULTI-POINT INSPECTION", [
+            Item(code: "MPI", description: "COMPLIMENTARY 42-POINT INSPECTION", quantity: "", amount: "N/C"),
+            Item(code: "", description: "BATTERY TEST 12.6V 610 CCA - GOOD"),
+            Item(code: "", description: "WIPER BLADES STREAKING - SEE LINE D"),
+            Item(code: "", description: "TIRE TREAD LF 7/32 RF 7/32 LR 6/32 RR 6/32"),
+        ]),
+    ]
+    table(pen, top: 224, sections: sections, bottom: 700)
+    pen.text("CONTINUED ON PAGE 2", 306, 712, size: 9, font: "Menlo-Bold", align: 0.5, tracking: 1)
+    pen.text("Thank you for trusting us with your Subaru.", 306, 740, size: 8, font: "Helvetica-Oblique", align: 0.5)
+}
+
+func frontTwo(_ pen: Pen) {
+    header(pen, page: 2)
+    customerBlock(pen)
+    let sections: [(String, [Item])] = [
+        ("D  WIPER BLADES", [
+            Item(code: "SOA591U026", description: "WIPER BLADE 26 IN DRIVER", quantity: "1", amount: "27.50"),
+            Item(code: "SOA591U018", description: "WIPER BLADE 18 IN PASSENGER", quantity: "1", amount: "24.50"),
+            Item(code: "", description: "INSTALL FRONT WIPER BLADES", quantity: "0.2", amount: "N/C"),
+        ]),
+        ("E  ROAD TEST", [
+            Item(code: "RT", description: "ROAD TEST 6 MI, NO CONCERNS, RESET MAINT. REMINDER", quantity: "", amount: "N/C"),
+        ]),
+    ]
+    table(pen, top: 224, sections: sections, bottom: 420)
+
+    let totals: [(String, String)] = [
+        ("PARTS", "209.20"), ("LABOR", "416.00"), ("SHOP SUPPLIES", "18.50"), ("HAZMAT DISPOSAL", "4.00"),
+        ("SUBTOTAL", "647.70"), ("SALES TAX 8.75% ON PARTS", "18.31"),
+    ]
+    pen.box(372, 432, 200, CGFloat(totals.count) * 14 + 30)
+    var row: CGFloat = 438
+    for (label, amount) in totals {
+        pen.text(label, 380, row, size: 8)
+        pen.text(amount, 566, row, size: 8, align: 1)
+        row += 14
+    }
+    pen.line(372, row, 572, row, width: 0.9)
+    pen.text("TOTAL DUE", 380, row + 7, size: 10, font: "Menlo-Bold")
+    pen.text("$666.01", 566, row + 7, size: 10, font: "Menlo-Bold", align: 1)
+
+    pen.text("PAYMENT  VISA XXXX-XXXX-XXXX-0000   AUTH 04417Z", left, 438, size: 8)
+    pen.text("NEXT SERVICE DUE AT 36,000 MILES", left, 452, size: 8, font: "Menlo-Bold")
+    pen.text("RECOMMENDED: REAR DIFFERENTIAL FLUID AT 60,000", left, 466, size: 8)
+
+    stamp(pen, centerX: 190, centerTop: 520)
+
+    pen.line(left, 640, 280, 640, width: 0.8)
+    pen.text("CUSTOMER SIGNATURE", left, 645, size: 7)
+    pen.line(330, 640, right, 640, width: 0.8)
+    pen.text("I AUTHORIZE THE ABOVE WORK AND ACKNOWLEDGE RECEIPT OF MY VEHICLE", 330, 645, size: 5.5)
+    pen.text("See reverse for warranty and terms.", 306, 740, size: 8, font: "Helvetica-Oblique", align: 0.5)
+}
+
+let terms = [
+    ("LIMITED WARRANTY", "Sierra Ridge Auto Care warrants the parts it installs and the labor it performs to be free of defects in material and workmanship for twelve (12) months or twelve thousand (12,000) miles, whichever comes first, from the time the vehicle is returned to the customer. This warranty applies only to the vehicle identified on the front of this repair order and only while it is owned by the customer named there."),
+    ("WHAT IS NOT COVERED", "This warranty does not cover normal wear items such as wiper blades, brake pads and rotors, filters, fluids, and bulbs once they reach the end of their service life; damage caused by accident, abuse, neglect, racing, towing beyond the rated capacity, or modification; parts supplied by the customer; or repairs performed by any other shop without our prior written approval."),
+    ("HOW TO MAKE A CLAIM", "Return the vehicle to our shop with this repair order. If you are more than fifty (50) miles from our shop, call us before having any repair made. We will direct you to a participating facility and reimburse covered parts and labor at the rates shown on this repair order. Keep all replaced parts for inspection."),
+    ("AUTHORIZATION", "You authorize the repairs described on the front of this repair order together with the necessary materials. You grant us and our employees permission to operate the vehicle on streets, highways, and elsewhere for the purpose of testing and inspection. An express mechanic's lien is acknowledged on the vehicle to secure the amount of repairs."),
+    ("ESTIMATES AND ADDITIONAL WORK", "No work beyond the amount you authorize will be performed without your consent. If we find a further condition during the work we will contact you by telephone, text message, or email, and record your approval, the time, and the method of contact on this repair order before we proceed."),
+    ("STORAGE", "Vehicles not picked up within three (3) business days of notice that work is complete may be charged storage of twenty-five dollars per day. We are not responsible for loss of or damage to vehicles or articles left in vehicles in case of fire, theft, or any other cause beyond our control."),
+    ("REPLACED PARTS", "Replaced parts will be offered to you at the time of payment unless they must be returned to the manufacturer or supplier under a warranty or core exchange program. Parts not claimed at the time of pickup are recycled at no charge to you."),
+    ("PAYMENT", "Payment is due in full when the vehicle is delivered. We accept cash, debit, and all major credit cards. Returned checks are subject to a service charge as allowed by law. Accounts not paid when due may be referred for collection, and you agree to pay reasonable collection costs."),
+    ("ENVIRONMENTAL", "Shop supplies and hazardous material disposal charges cover the cost of rags, solvents, lubricants, and the lawful recycling of used oil, coolant, filters, batteries, and tires. These charges are not profit to the shop."),
+    ("DIAGNOSTIC TIME", "Diagnosis of a concern that cannot be reproduced, or of an intermittent electrical condition, is billed at our posted hourly rate whether or not a repair is made. We will tell you the diagnostic charge before we begin and will not exceed it without your approval."),
+    ("USED AND REMANUFACTURED PARTS", "Unless you ask for new parts only, we may install remanufactured or rebuilt parts where they meet or exceed the original specification. Such parts are identified on the front of this repair order and carry the same limited warranty as new parts."),
+    ("SUBLET REPAIRS", "Some work, such as glass, upholstery, machining, and wheel alignment on certain models, may be performed by a qualified outside vendor. Sublet work is warranted by that vendor, and we will assist you with any claim."),
+    ("TIRES AND WHEELS", "Wheel lug nuts are torqued to the manufacturer's specification. Please have them checked again after the first fifty (50) miles. We are not responsible for damage to custom wheels, locks, or sensors that were damaged or corroded before service."),
+    ("LOANER VEHICLES", "A courtesy vehicle, when available, is provided for the customer's use during the repair only. The customer is responsible for fuel, tolls, citations, and any damage while the vehicle is in the customer's care, and must show a valid license and proof of coverage."),
+    ("LIMITATION OF LIABILITY", "Our liability under this repair order is limited to the repair or replacement of defective parts and workmanship. We are not liable for loss of use, rental, towing beyond our service area, lost time, or other incidental or consequential damages except where the law does not allow this limitation."),
+    ("DISPUTES", "If you have a concern about our work, please speak with the service manager first. Most concerns are resolved the same day. This repair order is governed by the laws of the state in which the work was performed. A copy of our written estimate is available on request."),
+]
+
+func back(_ pen: Pen) {
+    pen.text("LIMITED WARRANTY AND TERMS OF SERVICE", 306, 40, size: 11, font: "Menlo-Bold", align: 0.5, tracking: 0.5)
+    pen.text("PLEASE READ CAREFULLY. THESE TERMS ARE PART OF YOUR REPAIR ORDER.", 306, 58, size: 7, align: 0.5)
+    pen.line(left, 72, right, 72, width: 0.9)
+    let columnWidth: CGFloat = 250, gutter: CGFloat = 32
+    var column = 0
+    var top: CGFloat = 84
+    for (index, (heading, body)) in terms.enumerated() {
+        if index == terms.count / 2 {
+            column = 1
+            top = 84
+        }
+        let x = left + CGFloat(column) * (columnWidth + gutter)
+        pen.text("\(index + 1). \(heading)", x, top, size: 7.5, font: "Menlo-Bold")
+        top = pen.paragraph(body, x, top + 11, width: columnWidth, size: 6.4, leading: 8.9) + 8
+    }
+    pen.line(left, 740, right, 740, width: 0.6)
+    pen.text("SIERRA RIDGE AUTO CARE  -  CALIFORNIA BAR NO. ARD 000000", 306, 748, size: 6.5, align: 0.5)
+}
+
+/// Faint per-pixel grain, drawn as one tile so the paper isn't perfectly flat like a render.
+func grain() -> CGImage {
+    let side = 256
+    var pixels = [UInt8](repeating: 0, count: side * side)
+    var state: UInt32 = 0x5EED
+    for i in pixels.indices {
+        state = state &* 1_664_525 &+ 1_013_904_223
+        pixels[i] = UInt8(truncatingIfNeeded: state >> 24)
+    }
+    let context = CGContext(data: &pixels, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side,
+                            space: CGColorSpaceCreateDeviceGray(), bitmapInfo: 0)!
+    return context.makeImage()!
+}
+
+func render(_ draw: (Pen) -> Void, to url: URL) throws {
+    let context = CGContext(data: nil, width: frame.width, height: frame.height, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+    func band(_ top: Int, _ height: Int, _ color: CGColor) {
+        context.setFillColor(color)
+        context.fill(CGRect(x: 0, y: frame.height - top - height, width: frame.width, height: height))
+    }
+    band(0, frame.height, gray(1))
+    band(0, paperTop, gray(0.42))
+    band(paperTop, paperHeight, rgb(0xF5F2EA))
+    band(paperTop + paperHeight, shadowHeight, gray(0.3))
+    band(paperTop + paperHeight + shadowHeight, backingHeight, gray(0.82))
+
+    let paper = CGRect(x: 0, y: frame.height - paperTop - paperHeight, width: frame.width, height: paperHeight)
+    context.saveGState()
+    context.clip(to: paper)
+    context.setAlpha(0.05)
+    context.draw(grain(), in: CGRect(x: 0, y: 0, width: 256, height: 256), byTiling: true)
+    context.setAlpha(1)
+    context.translateBy(x: 0, y: paper.minY)
+    context.scaleBy(x: dpi / 72, y: dpi / 72)
+    draw(Pen(context: context))
+    context.restoreGState()
+
+    guard let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil) else {
+        throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: url.path])
+    }
+    CGImageDestinationAddImage(destination, context.makeImage()!, [kCGImagePropertyDPIWidth: dpi, kCGImagePropertyDPIHeight: dpi] as CFDictionary)
+    guard CGImageDestinationFinalize(destination) else { throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: url.path]) }
+}
+
+guard CommandLine.arguments.count == 2 else {
+    FileHandle.standardError.write(Data("usage: render-demo-pages <output-dir>\n".utf8))
+    exit(64)
+}
+let output = URL(filePath: CommandLine.arguments[1], directoryHint: .isDirectory)
+try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+for (number, page) in [frontOne, back, frontTwo, back].enumerated() {
+    let url = output.appending(path: String(format: "page-%03d.png", number + 1))
+    try render(page, to: url)
+    print(url.path)
+}

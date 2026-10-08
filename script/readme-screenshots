@@ -1,0 +1,24 @@
+#!/bin/bash
+# Regenerates docs/screenshots from fictional data only: the demo invoice from render-demo-pages and
+# the Rivera Family cabinet from demo-cabinet. Needs build/FastScan.app (script/build).
+# Usage: script/readme-screenshots
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/.." && pwd)"
+work="$(mktemp -d "${TMPDIR:-/tmp}/fastscan-readme.XXXXXX")"
+trap 'rm -rf "$work"' EXIT
+
+"$root/script/render-demo-pages" "$work/pages" >/dev/null
+"$root/script/demo-cabinet" "$work" >/dev/null
+FASTSCAN_FIXTURES="$work/pages" FASTSCAN_ROOT="$work/Rivera Family" \
+    "$root/script/snapshot-screens" "$work/shots" ready scanning reading file filed mixed >/dev/null
+
+shots="$root/docs/screenshots"
+mkdir -p "$shots"
+stages=(ready scanning reading file filed mixed)
+for i in "${!stages[@]}"; do
+    cp "$work/shots/${stages[$i]}-light.png" "$shots/$((i + 1))-${stages[$i]}.png"
+done
+cp "$work/shots/file-dark.png" "$shots/file-dark.png"
+if command -v oxipng >/dev/null; then oxipng -o max --strip safe -q "$shots"/*.png; fi
+ls -l "$shots"

@@ -1,0 +1,19 @@
+#!/bin/bash
+# Copies a folder tree's shape, not its contents: every folder, and a zero-byte file for every file.
+# Used to test filing against a stand-in for the family's shared iCloud folder without touching it.
+# Usage: script/mirror-tree <source> <destination>
+# Reads <source> only. <destination> must not be inside <source>.
+set -euo pipefail
+
+source_dir="$(cd "${1:?usage: mirror-tree <source> <destination>}" && pwd -P)"
+mkdir -p "${2:?usage: mirror-tree <source> <destination>}"
+destination="$(cd "$2" && pwd -P)"
+
+case "$destination/" in
+    "$source_dir"/*) echo "refusing: $destination is inside $source_dir" >&2; exit 1 ;;
+esac
+
+cd "$source_dir"
+find . -name .DS_Store -prune -o -type d -print0 | (cd "$destination" && xargs -0 mkdir -p)
+find . -type f ! -name .DS_Store -print0 | (cd "$destination" && xargs -0 touch)
+echo "mirrored $(find . -type d | wc -l | tr -d ' ') folders and $(find . -type f ! -name .DS_Store | wc -l | tr -d ' ') files into $destination"

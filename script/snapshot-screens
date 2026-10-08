@@ -1,0 +1,40 @@
+#!/bin/bash
+# Renders every screen of build/FastScan.app in light and dark mode to PNGs, using real fixture
+# scans and a stand-in filing cabinet. Nothing is filed and nothing is added to Photos.
+# Usage: FASTSCAN_FIXTURES=<dir with page-001..004.png> FASTSCAN_ROOT=<mirror-tree copy> \
+#        script/snapshot-screens <output-dir> [screen ...]
+set -euo pipefail
+
+: "${FASTSCAN_FIXTURES:?set FASTSCAN_FIXTURES to the directory holding page-00{1..4}.png}"
+: "${FASTSCAN_ROOT:?set FASTSCAN_ROOT to a stand-in cabinet made with script/mirror-tree}"
+case "$FASTSCAN_ROOT" in
+    *"/Library/Mobile Documents/"*) echo "refusing: FASTSCAN_ROOT is in iCloud Drive" >&2; exit 1 ;;
+esac
+
+root="$(cd "$(dirname "$0")/.." && pwd)"
+output="$(mkdir -p "${1:?usage: snapshot-screens <output-dir> [screen ...]}" && cd "$1" && pwd)"
+shift
+screens=("$@")
+if [ ${#screens[@]} -eq 0 ]; then
+    screens=(looking ready starting scanning reading file file-color file-fronts file-nobacks choose mixed filed notfound jam settings)
+fi
+
+for screen in "${screens[@]}"; do
+    for appearance in light dark; do
+        file="$output/$screen-$appearance.png"
+        rm -f "$file"
+        # Launched through LaunchServices, the app comes to the front, so the window draws as
+        # active (an inactive window grays its default button).
+        open -n -W -a "$root/build/FastScan.app" \
+            --env FASTSCAN_DEMO="$screen" --env FASTSCAN_APPEARANCE="$appearance" --env FASTSCAN_SNAPSHOT="$file" \
+            --env FASTSCAN_SNAPSHOT_DELAY="${FASTSCAN_SNAPSHOT_DELAY:-1.5}" \
+            --env FASTSCAN_FIXTURES="$FASTSCAN_FIXTURES" --env FASTSCAN_ROOT="$FASTSCAN_ROOT" &
+        pid=$!
+        for _ in $(seq 1 120); do
+            kill -0 "$pid" 2>/dev/null || break
+            sleep 0.5
+        done
+        kill "$pid" 2>/dev/null || true
+        if [ -f "$file" ]; then echo "$file"; else echo "missing: $file" >&2; fi
+    done
+done

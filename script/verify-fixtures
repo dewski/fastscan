@@ -1,0 +1,19 @@
+#!/bin/bash
+# Runs the page pipeline on the fictional invoice from script/render-demo-pages, then checks the PDF
+# is searchable. Set FASTSCAN_FIXTURES to a directory holding page-001.png .. page-004.png to run it
+# on other pages of the same invoice instead.
+# Usage: script/verify-fixtures
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/.." && pwd)"
+output="${TMPDIR:-/tmp}/fastscan-fixtures.pdf"
+if [ -z "${FASTSCAN_FIXTURES:-}" ]; then
+    FASTSCAN_FIXTURES="$(mktemp -d "${TMPDIR:-/tmp}/fastscan-fixtures.XXXXXX")"
+    trap 'rm -rf "$FASTSCAN_FIXTURES"' EXIT
+    "$root/script/render-demo-pages" "$FASTSCAN_FIXTURES" >/dev/null
+fi
+
+swift build -c release --package-path "$root" --product scankit
+"$root/.build/release/scankit" process "$FASTSCAN_FIXTURES"/page-00{1,2,3,4}.png -o "$output"
+swift "$root/script/check-pdf.swift" "$output" "1:SIERRA RIDGE AUTO CARE" "2:WARRANTY"
+echo "PDF left at $output"

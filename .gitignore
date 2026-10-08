@@ -1,0 +1,11 @@
+.DS_Store
+.build/
+build/
+DerivedData/
+*.xcodeproj/
+/out/
+*.pdf
+*.png
+!App/FastScan/Assets.xcassets/**/*.png
+.claude/
+!docs/screenshots/*.png
