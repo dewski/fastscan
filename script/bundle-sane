@@ -21,7 +21,12 @@ while [ ${#queue[@]} -gt 0 ]; do
     queue=("${queue[@]:1}")
     name="$(basename "$source_path")"
     [ -e "$frameworks/$name" ] && continue
-    cp "$(realpath "$source_path")" "$frameworks/$name"
+    real="$(realpath "$source_path")"
+    if [[ "$real" =~ /Cellar/([^/]+)/([^/]+)/ ]]; then
+        grep -q "${BASH_REMATCH[1]} ${BASH_REMATCH[2]}" "$root/THIRD-PARTY-NOTICES.md" ||
+            { echo "bundle-sane: THIRD-PARTY-NOTICES.md does not name ${BASH_REMATCH[1]} ${BASH_REMATCH[2]}; run script/third-party-notices" >&2; exit 1; }
+    fi
+    cp "$real" "$frameworks/$name"
     chmod u+w "$frameworks/$name"
     while read -r dependency; do
         is_system "$dependency" || [ "$(basename "$dependency")" = "$name" ] || queue+=("$dependency")

@@ -12,6 +12,8 @@ targets:
     platform: macOS
     sources:
       - App/FastScan
+      - path: THIRD-PARTY-NOTICES.md
+        buildPhase: resources
     dependencies:
       - package: ScanKit
         product: ScanKit

@@ -5,6 +5,7 @@ import ScanKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var windowController: ScanWindowController?
     private var settingsController: SettingsWindowController?
+    private var acknowledgementsController: AcknowledgementsWindowController?
     private var job: ScanJob?
     private var demo: Demo?
 
@@ -37,7 +38,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         if let demoState {
-            demo = Demo(state: demoState, controller: controller, job: job, openSettings: { [weak self] in self?.showSettings(nil) })
+            demo = Demo(state: demoState, controller: controller, job: job, openSettings: { [weak self] in self?.showSettings(nil) },
+                        openAcknowledgements: { [weak self] in self?.showAcknowledgements(nil) })
             demo?.run(snapshot: environment["FASTSCAN_SNAPSHOT"].map { URL(filePath: $0) },
                       delay: environment["FASTSCAN_SNAPSHOT_DELAY"].flatMap(Double.init) ?? 1.5)
         } else {
@@ -88,11 +90,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsController?.window?.makeKeyAndOrderFront(nil)
     }
 
+    @objc func showAcknowledgements(_ sender: Any?) {
+        if acknowledgementsController == nil { acknowledgementsController = AcknowledgementsWindowController() }
+        acknowledgementsController?.showWindow(nil)
+    }
+
     private func makeMainMenu() -> NSMenu {
         let main = NSMenu()
 
         let app = NSMenu(title: "FastScan")
         app.addItem(withTitle: "About FastScan", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        app.addItem(withTitle: "Acknowledgements", action: #selector(showAcknowledgements(_:)), keyEquivalent: "").target = self
         app.addItem(.separator())
         app.addItem(withTitle: "Settings…", action: #selector(showSettings(_:)), keyEquivalent: ",").target = self
         app.addItem(.separator())

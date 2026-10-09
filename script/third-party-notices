@@ -1,0 +1,82 @@
+#!/bin/bash
+# Regenerates THIRD-PARTY-NOTICES.md from the license files of the code FastScan.app bundles: the
+# SANE source that script/build-sane unpacked, and Homebrew's jpeg-turbo. Rerun it whenever either
+# version changes; script/bundle-sane refuses to bundle a library the notices don't name.
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/.." && pwd)"
+"$root/script/build-sane" >/dev/null
+sane="$root/build/sane/src"
+sane_version="$(sed -n 's/^version=//p' "$root/script/build-sane")"
+sane_url="$(sed -n 's/^url="\(.*\)"/\1/p' "$root/script/build-sane" | sed "s/\$version/$sane_version/")"
+sane_sha256="$(sed -n 's/^sha256=//p' "$root/script/build-sane")"
+jpeg="$(realpath "$(brew --prefix jpeg-turbo)")"
+jpeg_version="$(basename "$jpeg")"
+
+sources=("$sane"/backend/dll.c "$sane"/backend/epsonds*.c "$sane"/sanei/sanei_{config,config2,constrain_value,init_debug,tcp,udp,usb,scsi}.c)
+
+{
+cat <<EOF
+# Third-party notices
+
+FastScan.app includes the following third-party software in \`Contents/Frameworks\`. FastScan's own source does not carry a license yet.
+
+## SANE (sane-backends $sane_version)
+
+\`libsane.1.dylib\` is built by \`script/build-sane\` from the unmodified sane-backends $sane_version release, configured with \`--disable-dynamic BACKENDS=epsonds\`: SANE's \`dll\` front end, the \`epsonds\` backend, and the \`sanei\` helpers they use.
+
+- Source: <$sane_url>
+- SHA-256: \`$sane_sha256\`
+- Build script: \`script/build-sane\` in the FastScan repository
+- Project: <https://gitlab.com/sane-project/backends>
+
+The source tarball is also attached to each FastScan release.
+
+SANE is free software under the GNU General Public License, version 2. The \`dll\` front end and the \`sanei\` helpers are licensed "version 2 or (at your option) any later version", with the SANE exception below. The \`epsonds\` backend is licensed under version 2 only, without the exception.
+
+Copyright notices from the bundled source files:
+
+\`\`\`
+$(grep -h 'Copyright' "${sources[@]}" | sed 's/^[ */]*//' | sort -u)
+\`\`\`
+
+### The SANE exception (from backend/dll.c)
+
+\`\`\`
+$(sed -n '/As a special exception/,/If you do not wish that, delete this exception notice./p' "$sane/backend/dll.c" | sed 's/^   //')
+\`\`\`
+
+### SANE licensing overview (LICENSE)
+
+\`\`\`
+$(cat "$sane/LICENSE")
+\`\`\`
+
+### GNU General Public License, version 2 (COPYING)
+
+\`\`\`
+$(cat "$sane/COPYING")
+\`\`\`
+
+## libjpeg-turbo (Homebrew jpeg-turbo $jpeg_version)
+
+\`libjpeg.8.dylib\` is copied unmodified from Homebrew's jpeg-turbo $jpeg_version.
+
+- Source: <https://github.com/libjpeg-turbo/libjpeg-turbo/releases/tag/$jpeg_version>
+
+This software is based in part on the work of the Independent JPEG Group.
+
+### libjpeg-turbo licenses (LICENSE.md)
+
+\`\`\`
+$(cat "$jpeg/LICENSE.md")
+\`\`\`
+
+### IJG license (README.ijg, LEGAL ISSUES)
+
+\`\`\`
+$(sed -n '/^LEGAL ISSUES$/,/^REFERENCES$/p' "$jpeg/share/doc/libjpeg-turbo/README.ijg" | sed '$d')
+\`\`\`
+EOF
+} >"$root/THIRD-PARTY-NOTICES.md"
+echo "Wrote $root/THIRD-PARTY-NOTICES.md"

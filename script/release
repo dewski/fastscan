@@ -83,6 +83,7 @@ cat "dist/FastScan-$version.zip.sha256"
 [ "$identity" != "-" ] || echo "This build is signed ad hoc and not notarized. macOS blocks its first launch on other Macs."
 
 if [ "$publish" = 1 ]; then
-    gh release create "v$version" "$zip" "dist/FastScan-$version.zip.sha256" \
+    # GPL-2.0 section 3: ship the bundled SANE's source, and the script that built it, beside the binary.
+    gh release create "v$version" "$zip" "dist/FastScan-$version.zip.sha256" build/sane/sane-backends-*.tar.gz script/build-sane \
         --title "FastScan $version" --notes-file docs/release-notes.md --target "$(git rev-parse HEAD)"
 fi
