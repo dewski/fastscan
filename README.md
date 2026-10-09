@@ -38,20 +38,25 @@ The screenshots use a made-up invoice and family folder.
 
 ## How it works
 
-FastScan drives the scanner through SANE's `epsonds` backend. It crops each page, drops blank sides, and reads the text with Vision. Apple's Foundation Models framework then chooses a destination from the folders that best match the page.
+FastScan drives the scanner through SANE's `epsonds` backend, which ships inside the app. It crops each page, drops blank sides, and reads the text with Vision. Apple's Foundation Models framework then chooses a destination from the folders that best match the page.
 
 ## Download
 
-Get the latest `FastScan-<version>.zip` from [Releases](https://github.com/dewski/fastscan/releases). It needs a Mac with Apple silicon on macOS 26 or later, an Epson FastFoto FF-680W on your Wi-Fi, and `brew install sane-backends`. The release notes walk through the first launch.
+Get the latest `FastScan-<version>.zip` from [Releases](https://github.com/dewski/fastscan/releases). It needs a Mac with Apple silicon on macOS 26 or later and an Epson FastFoto FF-680W on your Wi-Fi. Nothing else needs to be installed: the app carries its own copy of SANE, and it is signed with a Developer ID and notarized by Apple, so it opens like any other downloaded app. The release notes walk through the first launch.
 
 ## Requirements
 
+These are for building FastScan. People who download the app need only macOS 26 or later on Apple silicon.
+
 - macOS 26 or later on Apple silicon, Xcode 27. Filing suggestions use Apple Intelligence (Foundation Models) when it is available, and a built-in heuristic when it isn't. Photos captions go into Photos' caption field on macOS 27.
-- Homebrew packages `sane-backends` and `xcodegen`:
+- Homebrew packages `sane-backends`, `jpeg-turbo`, and `xcodegen`:
 
   ```sh
-  brew install sane-backends xcodegen
+  brew install sane-backends jpeg-turbo xcodegen
   ```
+
+  Homebrew is needed only to build. SwiftPM reads `sane.h` from `sane-backends`, and the `scankit` CLI links Homebrew's `libsane`. The app does not: `script/build` bundles its own SANE, as described below.
+- Network access on the first build, to download the SANE source tarball.
 
 The app finds the scanner over Bonjour (`_scanner._tcp`) and writes its own SANE config to `~/Library/Application Support/FastScan/sane.d`, so you don't need to edit `/opt/homebrew/etc/sane.d`.
 
@@ -63,11 +68,33 @@ script/install
 
 `script/install` builds the app, replaces `/Applications/FastScan.app`, and opens it. Use `script/build` alone to build into `build/FastScan.app` without installing.
 
-To cut a release, set `MARKETING_VERSION` in `project.yml`, update `docs/release-notes.md`, commit, and run `script/release --publish`. It builds the app, zips it into `dist/` with a SHA-256 checksum, and creates the GitHub release `v<version>`. Without `--publish` it only packages.
-
-`script/build` generates `FastScan.xcodeproj` from `project.yml` and builds a Release app at `build/FastScan.app`. The app is signed ad hoc with hardened runtime off. Library validation would refuse Homebrew's `libsane`.
-
 On first launch macOS asks whether FastScan may find devices on the local network. Choose **Allow**. If the window says it can't find the scanner, use **Allow FastScan on your local network…** to open the setting.
+
+`script/build` generates `FastScan.xcodeproj` from `project.yml` and builds a Release app at `build/FastScan.app`. Then it:
+
+1. Runs `script/build-sane`, which builds `libsane` from the pinned sane-backends 1.4.0 tarball for macOS 26, with only the `epsonds` backend compiled into it. Nothing is loaded at run time with `dlopen`. The build is cached in `build/sane` until the tarball or the script changes. Homebrew's own `epsonds` is not used, because its bottle needs macOS 27.
+2. Runs `script/bundle-sane`, which copies that `libsane` and Homebrew's `libjpeg` into `Contents/Frameworks` and points the app at them through `@rpath`.
+3. Runs `script/sign`, which signs each library and then the app with one identity. The default is ad hoc, without the hardened runtime: library validation refuses ad hoc libraries, because ad hoc code has no Team ID. Set `FASTSCAN_SIGN_IDENTITY` to sign with a real identity, which turns on the hardened runtime.
+4. Runs `script/check-bundle`, which fails if any Mach-O in the app loads from `/opt/homebrew` or `/usr/local`, or needs a newer macOS than the app.
+
+`script/check-bundled-sane` proves the bundled SANE works without Homebrew. It runs `scankit info` against the app's libraries, in a sandbox that denies every read under `/opt/homebrew` and `/usr/local`.
+
+### Releases
+
+A release must be signed with a Developer ID and notarized, or macOS blocks it on other Macs. Set up both once:
+
+1. In Xcode, open **Settings › Accounts › Manage Certificates** and add a **Developer ID Application** certificate.
+2. Store notarization credentials in the keychain as the profile `fastscan-notary`. Use an app-specific password for your Apple Account:
+
+   ```sh
+   xcrun notarytool store-credentials fastscan-notary --apple-id <apple-id> --team-id <team-id>
+   ```
+
+To cut a release, set `MARKETING_VERSION` in `project.yml`, update `docs/release-notes.md`, commit, and run `script/release --publish`. It builds and signs the app with the Developer ID and the hardened runtime, sends it to Apple's notary service, staples the ticket, and checks it with `spctl`. Then it zips the app into `dist/` with a SHA-256 checksum and creates the GitHub release `v<version>`, with the SANE source tarball and `script/build-sane` attached. Without `--publish` it only packages. `FASTSCAN_SIGN_IDENTITY` picks the identity when the keychain has more than one Developer ID.
+
+`script/release --unsigned` makes an ad hoc build without notarization. macOS blocks its first launch until the user clicks **Open Anyway**. Without `--unsigned`, `script/release` stops if the Developer ID or the `fastscan-notary` profile is missing.
+
+FastScan bundles SANE and libjpeg-turbo. Their licenses are in `THIRD-PARTY-NOTICES.md`, which the app shows under **FastScan › Acknowledgements**. Run `script/third-party-notices` to regenerate it after either version changes. `script/bundle-sane` refuses to bundle a Homebrew library version that the notices don't name.
 
 ## Use the app
 
@@ -151,7 +178,7 @@ Scans and PDFs contain personal data. `.gitignore` excludes `*.png` and `*.pdf` 
 
 ## Layout
 
-- `Sources/CSANE` wraps Homebrew's `sane.h` and `libsane`.
+- `Sources/CSANE` wraps `sane.h` and `libsane`. SwiftPM builds link Homebrew's `libsane`, and `script/bundle-sane` swaps in the app's own.
 - `Sources/ScanKit` holds the logic:
   - Scanning: `ScannerDiscovery`, `SANESession`, `PageProcessor` (crop and blank detection), `TextRecognizer`.
   - Pages: `PageKind` (paper or photo), `PageEncoder` (gray detection and storage size), `PDFBuilder`.

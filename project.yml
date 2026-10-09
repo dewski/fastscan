@@ -20,8 +20,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.garrettbjerkhoel.FastScan
-        MARKETING_VERSION: "0.1.0"
-        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "0.2.0"
+        CURRENT_PROJECT_VERSION: "2"
         INFOPLIST_FILE: App/FastScan/Info.plist
         CODE_SIGN_ENTITLEMENTS: App/FastScan/FastScan.entitlements
         GENERATE_INFOPLIST_FILE: NO
