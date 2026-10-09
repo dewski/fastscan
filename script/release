@@ -1,16 +1,51 @@
 #!/bin/bash
-# Builds FastScan and packages it as dist/FastScan-<version>.zip with a SHA-256 checksum.
-# The version comes from MARKETING_VERSION in project.yml. Pass --publish to create the
-# GitHub release v<version> with the zip attached and docs/release-notes.md as its body.
+# Builds FastScan, signs it with a Developer ID, notarizes and staples it, and packages it as
+# dist/FastScan-<version>.zip with a SHA-256 checksum. The version comes from MARKETING_VERSION
+# in project.yml.
+#
+#   FASTSCAN_SIGN_IDENTITY  signing identity; defaults to the keychain's "Developer ID Application"
+#   --unsigned              sign ad hoc and skip notarization; Gatekeeper blocks the first launch
+#   --publish               create the GitHub release v<version> with docs/release-notes.md as its body
+#
+# Notarization uses the notarytool keychain profile "fastscan-notary".
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
 
+profile=fastscan-notary
+unsigned=0
+publish=0
+for argument in "$@"; do
+    case "$argument" in
+        --unsigned) unsigned=1 ;;
+        --publish) publish=1 ;;
+        *) echo "usage: script/release [--unsigned] [--publish]" >&2; exit 2 ;;
+    esac
+done
+
 version="$(sed -n 's/^ *MARKETING_VERSION: "\(.*\)"/\1/p' project.yml)"
 [ -n "$version" ] || { echo "MARKETING_VERSION not found in project.yml" >&2; exit 1; }
+[ "$publish" = 0 ] || git diff --quiet HEAD || { echo "commit your changes before publishing" >&2; exit 1; }
 
-script/build
+if [ "$unsigned" = 1 ]; then
+    identity=-
+else
+    identity="${FASTSCAN_SIGN_IDENTITY:-$(security find-identity -v -p codesigning |
+        sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' | head -1)}"
+    missing=()
+    [ -n "$identity" ] || missing+=("a \"Developer ID Application\" certificate in your keychain (Xcode › Settings › Accounts › Manage Certificates › + › Developer ID Application), or FASTSCAN_SIGN_IDENTITY")
+    xcrun notarytool history --keychain-profile "$profile" >/dev/null 2>&1 ||
+        missing+=("the notarytool keychain profile \"$profile\": xcrun notarytool store-credentials $profile --apple-id <apple-id> --team-id <team-id>")
+    if [ ${#missing[@]} -gt 0 ]; then
+        echo "script/release needs a Developer ID and a notary profile to make a build that opens on any Mac. Missing:" >&2
+        printf '  - %s\n' "${missing[@]}" >&2
+        echo "Pass --unsigned for an ad hoc build that macOS blocks until the user clicks Open Anyway." >&2
+        exit 1
+    fi
+fi
+
+FASTSCAN_SIGN_IDENTITY="$identity" script/build
 
 app="build/FastScan.app"
 built="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")"
@@ -18,15 +53,36 @@ built="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Co
 
 mkdir -p dist
 zip="dist/FastScan-$version.zip"
-rm -f "$zip"
-# ditto keeps the bundle's symlinks, extended attributes, and code signature intact.
-ditto -c -k --sequesterRsrc --keepParent "$app" "$zip"
-(cd dist && shasum -a 256 "FastScan-$version.zip" > "FastScan-$version.zip.sha256")
+package() {
+    rm -f "$zip"
+    # ditto keeps the bundle's symlinks, extended attributes, and code signature intact.
+    ditto -c -k --sequesterRsrc --keepParent "$app" "$zip"
+}
+
+if [ "$identity" != "-" ]; then
+    codesign --verify --strict --deep --verbose=2 "$app"
+    codesign -dv "$app" 2>&1 | grep -q 'flags=.*runtime' || { echo "$app lacks the hardened runtime" >&2; exit 1; }
+    package
+    result="$(xcrun notarytool submit "$zip" --keychain-profile "$profile" --wait --output-format json)"
+    echo "$result"
+    status="$(plutil -extract status raw - <<<"$result")"
+    if [ "$status" != Accepted ]; then
+        xcrun notarytool log "$(plutil -extract id raw - <<<"$result")" --keychain-profile "$profile" >&2 || true
+        echo "notarization finished with status $status" >&2
+        exit 1
+    fi
+    xcrun stapler staple "$app"
+    xcrun stapler validate "$app"
+    spctl --assess --verbose=4 --type execute "$app"
+fi
+
+package
+(cd dist && shasum -a 256 "FastScan-$version.zip" >"FastScan-$version.zip.sha256")
 echo "Packaged $root/$zip"
 cat "dist/FastScan-$version.zip.sha256"
+[ "$identity" != "-" ] || echo "This build is signed ad hoc and not notarized. macOS blocks its first launch on other Macs."
 
-if [ "${1:-}" = "--publish" ]; then
-    git diff --quiet HEAD || { echo "commit your changes before publishing" >&2; exit 1; }
+if [ "$publish" = 1 ]; then
     gh release create "v$version" "$zip" "dist/FastScan-$version.zip.sha256" \
         --title "FastScan $version" --notes-file docs/release-notes.md --target "$(git rev-parse HEAD)"
 fi
