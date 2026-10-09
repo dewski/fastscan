@@ -2,7 +2,7 @@
 # Builds the libsane that ships inside FastScan.app: SANE's own dll front end with only the
 # epsonds backend compiled in (preloaded), so nothing is dlopen'd at run time. It is built from
 # the pinned release tarball for the app's deployment target, because Homebrew's bottle targets
-# the build machine's macOS. Homebrew supplies only jpeg-turbo and pkgconf at build time.
+# the build machine's macOS. Of Homebrew it needs only jpeg-turbo, and only at build time.
 #
 # Prints the staged libsane.1.dylib path. Reruns are free until the tarball or this script changes.
 set -euo pipefail
