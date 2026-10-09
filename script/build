@@ -1,5 +1,6 @@
 #!/bin/bash
-# Generates the Xcode project and builds FastScan.app into build/FastScan.app.
+# Generates the Xcode project, builds FastScan.app into build/FastScan.app, bundles SANE into it,
+# and signs it. FASTSCAN_SIGN_IDENTITY picks the identity; the default is ad hoc.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -9,6 +10,10 @@ xcodegen generate --quiet
 xcodebuild -project FastScan.xcodeproj -scheme FastScan -configuration Release \
     -derivedDataPath build/DerivedData -destination 'platform=macOS,arch=arm64' build -quiet
 
-rm -rf build/FastScan.app
-cp -R build/DerivedData/Build/Products/Release/FastScan.app build/FastScan.app
-echo "Built $root/build/FastScan.app"
+app=build/FastScan.app
+rm -rf "$app"
+cp -R build/DerivedData/Build/Products/Release/FastScan.app "$app"
+script/bundle-sane "$app"
+script/sign "$app" "${FASTSCAN_SIGN_IDENTITY:--}"
+script/check-bundle "$app"
+echo "Built $root/$app"

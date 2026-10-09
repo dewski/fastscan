@@ -1,0 +1,64 @@
+#!/bin/bash
+# Builds the libsane that ships inside FastScan.app: SANE's own dll front end with only the
+# epsonds backend compiled in (preloaded), so nothing is dlopen'd at run time. It is built from
+# the pinned release tarball for the app's deployment target, because Homebrew's bottle targets
+# the build machine's macOS. Homebrew supplies only jpeg-turbo and pkgconf at build time.
+#
+# Prints the staged libsane.1.dylib path. Reruns are free until the tarball or this script changes.
+set -euo pipefail
+
+version=1.4.0
+url="https://gitlab.com/-/project/429008/uploads/843c156420e211859e974f78f64c3ea3/sane-backends-$version.tar.gz"
+sha256=f99205c903dfe2fb8990f0c531232c9a00ec9c2c66ac7cb0ce50b4af9f407a72
+deployment_target="${MACOSX_DEPLOYMENT_TARGET:-26.0}"
+
+root="$(cd "$(dirname "$0")/.." && pwd)"
+work="$root/build/sane"
+tarball="$work/sane-backends-$version.tar.gz"
+stage="$work/stage"
+dylib="$stage/usr/lib/libsane.1.dylib"
+key="$sha256 $deployment_target $(shasum -a 256 "$0" | cut -d' ' -f1)"
+
+if [ -f "$dylib" ] && [ "$(cat "$work/stamp" 2>/dev/null)" = "$key" ]; then
+    echo "$dylib"
+    exit 0
+fi
+
+jpeg="$(brew --prefix jpeg-turbo 2>/dev/null)" && [ -f "$jpeg/include/jpeglib.h" ] ||
+    { echo "build-sane: needs Homebrew's jpeg-turbo at build time: brew install jpeg-turbo" >&2; exit 1; }
+
+mkdir -p "$work"
+if ! echo "$sha256  $tarball" | shasum -a 256 -c --status 2>/dev/null; then
+    curl -fsSL -o "$tarball" "$url"
+    echo "$sha256  $tarball" | shasum -a 256 -c --status ||
+        { echo "build-sane: $tarball does not match its pinned SHA-256" >&2; exit 1; }
+fi
+
+rm -rf "$work/src" "$stage" "$work/stamp" "$work/make.log"
+mkdir -p "$work/src"
+tar -xzf "$tarball" -C "$work/src" --strip-components 1
+cd "$work/src"
+
+# dll.c stores preloaded entry points as void *(*)(void) and casts them back before each call;
+# current clang rejects that initializer by default.
+# --prefix=/usr only names the compiled-in fallback paths. FastScan always sets SANE_CONFIG_DIR,
+# and /usr/etc/sane.d cannot exist on macOS, so the library never reads anything outside the app.
+# A /usr/lib install name makes ld treat the dylib as shared-cache eligible; opt it out.
+MACOSX_DEPLOYMENT_TARGET="$deployment_target" ./configure --quiet \
+    --prefix=/usr --disable-dynamic --disable-locking --disable-nls --enable-silent-rules \
+    --without-usb --without-snmp --without-avahi --without-gphoto2 --without-v4l \
+    --without-systemd --without-poppler-glib \
+    BACKENDS=epsonds CFLAGS="-O2 -Wno-incompatible-function-pointer-types" CPPFLAGS="-I$jpeg/include" \
+    LDFLAGS="-L$jpeg/lib -Wl,-dead_strip_dylibs -Wl,-not_for_dyld_shared_cache" >"$work/configure.log" 2>&1
+build() {
+    MACOSX_DEPLOYMENT_TARGET="$deployment_target" make -j"$(sysctl -n hw.ncpu)" "$@" >>"$work/make.log" 2>&1 ||
+        { tail -20 "$work/make.log" >&2; exit 1; }
+}
+build -C lib
+build -C sanei
+# The preload build links sanei_usb twice, once through dll and once with the preloaded backends.
+build -C backend libdll_preload_la_LIBADD='$(XML_LIBS)'
+make -C backend install-libLTLIBRARIES DESTDIR="$stage" >>"$work/make.log" 2>&1
+
+echo "$key" >"$work/stamp"
+echo "$dylib"

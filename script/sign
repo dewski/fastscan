@@ -1,0 +1,20 @@
+#!/bin/bash
+# Signs FastScan.app inside out: each bundled library, then the app, all with one identity.
+# A real identity gets the hardened runtime and a secure timestamp, which notarization requires.
+# The default, ad hoc ("-"), gets neither: library validation compares Team IDs, ad hoc code has
+# none, and dyld refuses the bundled libsane with "mapping process and mapped file (non-platform)
+# have different Team IDs".
+set -euo pipefail
+
+app="${1:?usage: script/sign <FastScan.app> [identity]}"
+entitlements="$(cd "$(dirname "$0")/.." && pwd)/App/FastScan/FastScan.entitlements"
+identity="${2:--}"
+
+flags=(--force --sign "$identity")
+[ "$identity" = "-" ] || flags+=(--options runtime --timestamp)
+
+for library in "$app"/Contents/Frameworks/*; do
+    codesign "${flags[@]}" "$library"
+done
+codesign "${flags[@]}" --entitlements "$entitlements" "$app"
+codesign --verify --strict --deep "$app"

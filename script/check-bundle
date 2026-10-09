@@ -1,0 +1,36 @@
+#!/bin/bash
+# Fails unless every Mach-O in the app loads only from the system or the bundle, and none needs
+# a newer macOS than the app's LSMinimumSystemVersion. Pass -v to print each file's load list.
+set -euo pipefail
+
+verbose=0
+[ "${1:-}" = "-v" ] && { verbose=1; shift; }
+app="${1:?usage: script/check-bundle [-v] <FastScan.app>}"
+minimum="$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$app/Contents/Info.plist")"
+
+version_le() { [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -1)" = "$1" ]; }
+
+failed=0
+count=0
+while IFS= read -r -d '' file; do
+    file -b "$file" | grep -q '^Mach-O' || continue
+    count=$((count + 1))
+    loads="$(otool -L "$file" | tail -n +2)"
+    [ "$verbose" = 1 ] && printf '%s\n%s\n' "${file#"$app/"}" "$loads"
+    if grep -E '/opt/homebrew|/usr/local' <<<"$loads"; then
+        echo "check-bundle: ${file#"$app/"} loads from outside the bundle" >&2
+        failed=1
+    fi
+    if otool -l "$file" | grep -E '^ *path ' | grep -E '/opt/homebrew|/usr/local'; then
+        echo "check-bundle: ${file#"$app/"} has an rpath outside the bundle" >&2
+        failed=1
+    fi
+    minos="$(otool -l "$file" | awk '/minos/ {print $2; exit}')"
+    if ! version_le "$minos" "$minimum"; then
+        echo "check-bundle: ${file#"$app/"} needs macOS $minos, but the app supports $minimum" >&2
+        failed=1
+    fi
+done < <(find "$app" -type f -print0)
+
+[ "$failed" = 0 ] || exit 1
+echo "check-bundle: $count Mach-O files load only from the system and the bundle, all for macOS $minimum or earlier"

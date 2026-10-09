@@ -1,0 +1,30 @@
+#!/bin/bash
+# Proves the SANE inside an app bundle drives the scanner with Homebrew out of reach. It copies the
+# scankit CLI to build/probe, points it at <app>/Contents/Frameworks instead of Homebrew's libsane,
+# and runs `scankit info` in a sandbox that denies every read under /opt/homebrew and /usr/local.
+# Any library still loaded from there fails to load. Prints the libraries dyld loaded, then the
+# scanner's options. Nothing in the app bundle or in Homebrew changes.
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/.." && pwd)"
+app="$(cd "${1:-$root/build/FastScan.app}" && pwd)"
+probe="$root/build/probe/scankit"
+
+swift build --package-path "$root" -c release --product scankit --quiet
+mkdir -p "$(dirname "$probe")"
+built="$(swift build --package-path "$root" -c release --show-bin-path)/scankit"
+cp "$built" "$probe"
+homebrew_libsane="$(otool -L "$probe" | awk '/libsane/ {print $1}')"
+install_name_tool -change "$homebrew_libsane" @rpath/libsane.1.dylib -add_rpath "$app/Contents/Frameworks" "$probe" 2>/dev/null
+codesign --force --sign - "$probe" 2>/dev/null
+
+no_homebrew() {
+    sandbox-exec -p '(version 1) (allow default) (deny file-read* (subpath "/opt/homebrew") (subpath "/usr/local"))' "$@"
+}
+control="$(no_homebrew "$built" 2>&1 || true)"
+grep -q 'Library not loaded: /opt/homebrew' <<<"$control" ||
+    { echo "check-bundled-sane: the sandbox did not stop the Homebrew-linked scankit, so it proves nothing" >&2; exit 1; }
+echo "Control, Homebrew-linked scankit in the sandbox: $(grep -m1 'Library not loaded' <<<"$control")"
+echo "Bundled-SANE scankit in the sandbox (system libraries omitted):"
+# SIP drops DYLD_* when it starts sandbox-exec, so env sets it inside the sandbox.
+no_homebrew /usr/bin/env DYLD_PRINT_LIBRARIES=1 "$probe" info 2>&1 | grep -vE '^dyld\[[0-9]+\]: (<[^>]+> /(System|usr/lib)/|move loaded)'

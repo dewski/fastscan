@@ -1,0 +1,49 @@
+#!/bin/bash
+# Copies the libsane from script/build-sane, and every non-system dylib it needs, into
+# <app>/Contents/Frameworks, and points the app and each library at the copies through @rpath.
+# The bundle must then be signed again (script/sign).
+set -euo pipefail
+
+app="${1:?usage: script/bundle-sane <FastScan.app>}"
+root="$(cd "$(dirname "$0")/.." && pwd)"
+executable="$app/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
+frameworks="$app/Contents/Frameworks"
+
+is_system() { [[ "$1" == /usr/lib/* || "$1" == /System/* || "$1" == @* ]]; }
+dependencies() { otool -L "$1" | tail -n +2 | awk '{print $1}'; }
+
+rm -rf "$frameworks"
+mkdir -p "$frameworks"
+
+queue=("$("$root/script/build-sane")")
+while [ ${#queue[@]} -gt 0 ]; do
+    source_path="${queue[0]}"
+    queue=("${queue[@]:1}")
+    name="$(basename "$source_path")"
+    [ -e "$frameworks/$name" ] && continue
+    cp "$(realpath "$source_path")" "$frameworks/$name"
+    chmod u+w "$frameworks/$name"
+    while read -r dependency; do
+        is_system "$dependency" || [ "$(basename "$dependency")" = "$name" ] || queue+=("$dependency")
+    done < <(dependencies "$frameworks/$name")
+done
+
+for binary in "$executable" "$frameworks"/*; do
+    changes=()
+    [ "$binary" = "$executable" ] || changes+=(-id "@rpath/$(basename "$binary")")
+    while read -r dependency; do
+        is_system "$dependency" && continue
+        bundled="$(basename "$dependency")"
+        [ -e "$frameworks/$bundled" ] || { echo "bundle-sane: $binary needs $dependency, which is not bundled" >&2; exit 1; }
+        [ "$bundled" = "$(basename "$binary")" ] || changes+=(-change "$dependency" "@rpath/$bundled")
+    done < <(dependencies "$binary")
+    while read -r rpath; do
+        changes+=(-delete_rpath "$rpath")
+    done < <(otool -l "$binary" | awk '$1 == "path" && $2 ~ /^\// {print $2}')
+    # install_name_tool warns that it invalidates the signature; script/sign signs everything again.
+    [ ${#changes[@]} -eq 0 ] || install_name_tool "${changes[@]}" "$binary" 2>/dev/null
+done
+
+otool -l "$executable" | grep -q '@executable_path/../Frameworks' ||
+    install_name_tool -add_rpath @executable_path/../Frameworks "$executable"
+echo "Bundled $(ls "$frameworks" | tr '\n' ' ')into $frameworks"
