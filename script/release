@@ -61,7 +61,8 @@ package() {
 
 if [ "$identity" != "-" ]; then
     codesign --verify --strict --deep --verbose=2 "$app"
-    codesign -dv "$app" 2>&1 | grep -q 'flags=.*runtime' || { echo "$app lacks the hardened runtime" >&2; exit 1; }
+    signature="$(codesign -dv "$app" 2>&1)"
+    [[ "$signature" == *"(runtime)"* ]] || { echo "$app lacks the hardened runtime" >&2; exit 1; }
     package
     result="$(xcrun notarytool submit "$zip" --keychain-profile "$profile" --wait --output-format json)"
     echo "$result"
