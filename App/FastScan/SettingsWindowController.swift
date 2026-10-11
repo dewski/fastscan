@@ -38,17 +38,23 @@ final class SettingsWindowController: NSWindowController {
         scannerDot.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([scannerDot.widthAnchor.constraint(equalToConstant: 7), scannerDot.heightAnchor.constraint(equalToConstant: 7)])
 
-        let grid = NSGridView(views: [
-            [label("Filing cabinet"), vstack([cabinetPopup, cabinetNote], spacing: 4, alignment: .leading)],
-            [label("When unsure"), vstack([unsurePopup, unsureNote], spacing: 4, alignment: .leading)],
-            [label("Color"), vstack([colorPopup, colorNote], spacing: 4, alignment: .leading)],
-            [label("Scanner"), hstack([scannerDot, scannerLabel], spacing: 6)],
-        ])
+        let rows: [(label: NSTextField, control: NSView, cell: NSView)] = [
+            (label("Filing cabinet"), cabinetPopup, vstack([cabinetPopup, cabinetNote], spacing: 4, alignment: .leading)),
+            (label("When unsure"), unsurePopup, vstack([unsurePopup, unsureNote], spacing: 4, alignment: .leading)),
+            (label("Color"), colorPopup, vstack([colorPopup, colorNote], spacing: 4, alignment: .leading)),
+            (label("Scanner"), scannerLabel, hstack([scannerDot, scannerLabel], spacing: 6)),
+        ]
+        let grid = NSGridView(views: rows.map { [$0.label, $0.cell] })
         grid.column(at: 0).xPlacement = .trailing
         grid.column(at: 0).width = 110
         grid.rowSpacing = 16
         grid.columnSpacing = 14
-        for row in 0..<4 { grid.row(at: row).yPlacement = .top }
+        // Each label sits on the baseline of its control's text, which a popup draws lower than its top.
+        for (index, row) in rows.enumerated() {
+            grid.row(at: index).yPlacement = .top
+            grid.cell(atColumnIndex: 0, rowIndex: index).yPlacement = .none
+            row.label.firstBaselineAnchor.constraint(equalTo: row.control.firstBaselineAnchor).isActive = true
+        }
         let content = NSView()
         content.pin(grid, insets: NSEdgeInsets(top: 22, left: 24, bottom: 22, right: 28))
         for note in [cabinetNote, unsureNote, colorNote] { note.widthAnchor.constraint(equalToConstant: 250).isActive = true }
