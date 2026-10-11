@@ -109,6 +109,21 @@ public actor ScannerSession {
         }
     }
 
+    /// Checks that the scanner could start a scan, as ScanSmart does before each one: `FS Y`,
+    /// `STAT`, `FIN`. Throws `ScannerError.feederEmpty` with no paper loaded, and `jammed` or
+    /// `doubleFeed` for one that hasn't been cleared yet.
+    public func checkReady() async throws {
+        guard let connection else { throw ScannerError.notOpen }
+        do {
+            try await enter("Y")
+            try Self.checkStatus(try await connection.command("STAT").data)
+            try await finishMode()
+        } catch {
+            await fail(error)
+            throw error
+        }
+    }
+
     /// The scanner's `INFO` tokens and its `EXI` page lengths, for `scankit info`.
     public func details() -> [String] {
         info.map { ESCI2.printable($0.encoded) } + (exi.isEmpty ? [] : ["EXI " + ESCI2.ascii(exi)])
@@ -120,10 +135,7 @@ public actor ScannerSession {
     private func feed(into continuation: AsyncThrowingStream<RawPage, any Error>.Continuation) async {
         do {
             guard let connection, let scan else { throw ScannerError.notOpen }
-            // A jam or double feed that hasn't been cleared is still reported here.
-            try await enter("Y")
-            try Self.checkStatus(try await connection.command("STAT").data)
-            try await finishMode()
+            try await checkReady()
             try await enter("X")
             try Self.checkStatus(try await connection.command("STAT").data)
 

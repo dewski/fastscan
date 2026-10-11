@@ -12,6 +12,7 @@ let usage = """
            scankit undo <receipt.json>
            scankit tree [<folder>] --root <cabinet>
            scankit scan [--root <cabinet>] [--out <dir> | --file <path.pdf>] [--photos-dir <dir>] [--no-model]
+           scankit watch --out <dir> [--root <cabinet>] [--photos-dir <dir>] [--interval <seconds>] [--no-model]
 
     --color is automatic (the default), color, or grayscale. --fronts-only reads every side, then leaves out the back of each sheet.
     `scan --no-suggest` skips the name and folder suggestion, for an agent that chooses them itself: the document is named
@@ -23,6 +24,8 @@ let usage = """
     under the suggested folder and name, creating folders it lacks; --root defaults to it, and the undo receipt goes in
     <out>/.scankit/receipts. --file writes the document to exactly that PDF. Photos go to --photos-dir, or <out>/.scankit/photos.
     After a jam, what was scanned before it is saved, and `scan` exits with status 3.
+    `watch` does the same with --out for each stack as it's loaded, checking for paper every --interval seconds (2 by default).
+    Ctrl-C stops it; during a scan, what came through is filed first.
     """
 
 struct CLIError: LocalizedError {
@@ -32,7 +35,7 @@ struct CLIError: LocalizedError {
 
 /// Splits `--flag value` options from positional arguments.
 struct Arguments {
-    static let valued: Set<String> = ["-o", "--root", "--pages-dir", "--receipt", "--photos-dir", "--color", "--out", "--file"]
+    static let valued: Set<String> = ["-o", "--root", "--pages-dir", "--receipt", "--photos-dir", "--color", "--out", "--file", "--interval"]
     var positional: [String] = []
     var options: [String: String] = [:]
     var flags: Set<String> = []
@@ -274,6 +277,8 @@ do {
             FileHandle.standardError.write(Data("warning: the paper jammed; only the pages before the jam were scanned\n".utf8))
             exit(3)
         }
+    case "watch":
+        try await watch(arguments)
     default:
         print(usage)
         exit(64)

@@ -246,6 +246,29 @@ actor ScriptedScanner: ScannerTransport {
         #expect(await scanner.unmatched == [])
     }
 
+    @Test(arguments: [
+        ([UInt8](), nil),
+        (Array("#ERRADF PE  ".utf8), ScannerError.feederEmpty),
+        (Array("#ERRADF PJ  ".utf8), ScannerError.jammed),
+        (Array("#ERRADF DFED".utf8), ScannerError.doubleFeed),
+    ] as [([UInt8], ScannerError?)])
+    func checkReadyReportsWhatTheScannerSays(status: [UInt8], error: ScannerError?) async throws {
+        let scanner = ScriptedScanner(
+            ScriptedScanner.opening() + [ScriptedScanner.mode("Y")] + ScriptedScanner.command("STAT", data: status)
+                + ScriptedScanner.command("FIN") + [ScriptedScanner.unlock]
+        )
+        let session = ScannerSession()
+        try await session.open(scanner)
+        if let error {
+            await #expect(throws: error) { try await session.checkReady() }
+        } else {
+            try await session.checkReady()
+        }
+        await session.close()
+        #expect(await scanner.unmatched == [])
+        #expect(await scanner.finished)
+    }
+
     @Test func refusesAnotherProduct() async {
         let scanner = ScriptedScanner(
             [ScriptedScanner.lock, ScriptedScanner.mode("Y")]
