@@ -146,6 +146,8 @@ public final class ScanJob {
     public var albumDate: () -> CalendarDate = { CalendarDate(.now) }
 
     private var session: ScannerSession?
+    /// How a scan reaches the scanner; tests swap in a scripted one.
+    var transport: (ScannerEndpoint) -> any ScannerTransport = { NetworkTransport(host: $0.ipv4, port: $0.port) }
     private var stopRequested = false
     private var keptSheets: [ScannedSheet] = []
     private var pageCount = 0
@@ -412,8 +414,9 @@ public final class ScanJob {
         }
 
         var failure: (any Error)?
+        var stopped = false
         do {
-            try await session.open(endpoint)
+            try await session.open(transport(endpoint))
             try await session.apply(fastScanSettings)
             send(.connected)
             for try await raw in session.pages() {
@@ -422,6 +425,7 @@ public final class ScanJob {
             }
         } catch let error as ScannerError where error == .stoppedAtScanner || (error == .cancelled && stopRequested) {
             // Stop, in the app or on the scanner, keeps what was scanned.
+            stopped = true
         } catch {
             failure = error
         }
@@ -430,6 +434,13 @@ public final class ScanJob {
         await session.close()
         self.session = nil
 
+        if stopped, pageCount == 0, keptSheets.isEmpty {
+            // Stopped before any side arrived: there's nothing to read, so it's as if the scan
+            // never started.
+            reading.cancel()
+            send(.cancelled)
+            return
+        }
         let jammed = failure.map { [.jammed, .doubleFeed].contains($0 as? ScannerError) } ?? false
         if jammed {
             // A jam usually catches a sheet halfway; keep only sheets whose both sides came through.
