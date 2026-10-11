@@ -142,6 +142,8 @@ public final class ScanJob {
     /// A filing or undo that failed; the batch stays in review so nothing is lost.
     public var onError: ((String) -> Void)?
     public var reader: BatchReader
+    /// How each scan is made: two-sided color at 300 dpi unless changed.
+    public var settings = fastScanSettings
     public var photoWriter: any PhotoLibraryWriter
     public var albumDate: () -> CalendarDate = { CalendarDate(.now) }
 
@@ -417,7 +419,7 @@ public final class ScanJob {
         var stopped = false
         do {
             try await session.open(transport(endpoint))
-            try await session.apply(fastScanSettings)
+            try await session.apply(settings)
             send(.connected)
             for try await raw in session.pages() {
                 pageCount = raw.index + 1
