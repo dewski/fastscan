@@ -244,26 +244,26 @@ enum ESCI2 {
 
     /// The normal-speed page length, in 1/100 inch, that `EXI` gives for `dpi`.
     static func normalSpeedLength(exi: [UInt8], dpi: Int) throws -> Int? {
-        struct Lengths: Decodable {
-            struct Entry: Decodable {
-                var resolution: Int
-                var length: Int
-                enum CodingKeys: String, CodingKey {
-                    case resolution = "Resolution", length = "Length"
-                }
-            }
-            var normalSpeedLength: [Entry]
+        try lengths(exi: exi, key: "NormalSpeedLength")[dpi]
+    }
+
+    /// One of `EXI`'s lists (`NormalSpeedLength` or `MaxLength`), as resolution to length in
+    /// 1/100 inch.
+    static func lengths(exi: [UInt8], key: String) throws -> [Int: Int] {
+        struct Entry: Decodable {
+            var resolution: Int
+            var length: Int
             enum CodingKeys: String, CodingKey {
-                case normalSpeedLength = "NormalSpeedLength"
+                case resolution = "Resolution", length = "Length"
             }
         }
-        let lengths: Lengths
+        let lists: [String: [Entry]]
         do {
-            lengths = try JSONDecoder().decode(Lengths.self, from: Data(exi))
+            lists = try JSONDecoder().decode([String: [Entry]].self, from: Data(exi))
         } catch {
             throw ScannerError.malformed("EXI \(printable(exi))")
         }
-        return lengths.normalSpeedLength.first { $0.resolution == dpi }?.length
+        return Dictionary((lists[key] ?? []).map { ($0.resolution, $0.length) }, uniquingKeysWith: { first, _ in first })
     }
 
     // MARK: Scan parameters
