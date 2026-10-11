@@ -11,12 +11,16 @@ let usage = """
            scankit file <image...> --root <cabinet> --receipt <receipt.json> [--no-model] [--color <mode>] [--fronts-only] [--photos-dir <dir>]
            scankit undo <receipt.json>
            scankit tree [<folder>] --root <cabinet>
-           scankit scan --root <cabinet> [--no-model]
+           scankit scan [--root <cabinet>] [--out <dir> | --file <path.pdf>] [--photos-dir <dir>] [--no-model]
 
     --color is automatic (the default), color, or grayscale. --fronts-only reads every side, then leaves out the back of each sheet.
     Images are a duplex scan in feeder order at 300 dpi: front, back, front, back, ...
     `file` refuses any cabinet inside iCloud Drive; point it at a copy made by script/mirror-tree.
     Photos are never added to the photo library; `file` writes them to --photos-dir instead.
+    `scan` scans one stack and prints what it suggests. --out files the document into that folder, a copy of the cabinet,
+    under the suggested folder and name, creating folders it lacks; --root defaults to it, and the undo receipt goes in
+    <out>/.scankit/receipts. --file writes the document to exactly that PDF. Photos go to --photos-dir, or <out>/.scankit/photos.
+    After a jam, what was scanned before it is saved, and `scan` exits with status 3.
     """
 
 struct CLIError: LocalizedError {
@@ -26,7 +30,7 @@ struct CLIError: LocalizedError {
 
 /// Splits `--flag value` options from positional arguments.
 struct Arguments {
-    static let valued: Set<String> = ["-o", "--root", "--pages-dir", "--receipt", "--photos-dir", "--color"]
+    static let valued: Set<String> = ["-o", "--root", "--pages-dir", "--receipt", "--photos-dir", "--color", "--out", "--file"]
     var positional: [String] = []
     var options: [String: String] = [:]
     var flags: Set<String> = []
@@ -250,13 +254,22 @@ do {
     case "tree":
         print(tree(try arguments.root(), under: arguments.positional.first ?? ""))
     case "scan":
-        let root = try arguments.root()
+        let output = try ScanOutput(arguments)
+        let root = try arguments.options["--root"] == nil ? output?.cabinet ?? arguments.root() : arguments.root()
         let job = await ScanJob(reader: try arguments.reader(root: root),
                                 photoWriter: DryRunPhotoWriter(directory: FileManager.default.temporaryDirectory.appending(path: "scankit-photos")))
         await MainActor.run { job.onChange = { print(describe($0)) } }
         await job.discover()
-        await job.scan()
-        if let batch = await job.state.batch { report(batch) }
+        guard case .ready = await job.state else { throw CLIError(describe(await job.state)) }
+        let result = try await scanStack(job, to: output, photosDirectory: arguments.options["--photos-dir"].map { URL(filePath: $0, directoryHint: .isDirectory) },
+                                         printReport: true)
+        if let saved = result.savedTo { print("\nSaved: \(saved)") }
+        if let receipt = result.receipt { print("Receipt: \(receipt)") }
+        if let photos = result.photosSavedTo { print("Photos: \(photos)") }
+        if result.jammed {
+            FileHandle.standardError.write(Data("warning: the paper jammed; only the pages before the jam were scanned\n".utf8))
+            exit(3)
+        }
     default:
         print(usage)
         exit(64)
