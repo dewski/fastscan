@@ -16,6 +16,9 @@ public struct BatchReader: Sendable {
     public var whenUnsure: WhenUnsure
     /// The color mode a new document starts with.
     public var colorMode: ColorMode
+    /// False skips the folder index and the suggestion, for a caller that chooses the name and
+    /// folder itself: a new document is named for when it was scanned and goes to the Inbox.
+    public var suggests = true
 
     public init(root: URL, indexStore: FolderIndexStore = FolderIndexStore(), suggester: FilingSuggester = FilingSuggester(),
                 feedbackStore: FilingFeedbackStore = FilingFeedbackStore(),
@@ -50,6 +53,15 @@ public struct BatchReader: Sendable {
 
     /// The batch's document for its current paper sheets. An existing draft keeps the family's
     /// edits and suggestion; only its pages and PDF are rebuilt.
+    /// When a document was scanned, as its name when there's no suggestion. Dots, not colons,
+    /// which file names can't hold.
+    private static let scanTime: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
+        return formatter
+    }()
+
     public func document(for batch: Batch, today: CalendarDate = CalendarDate(.now)) async throws -> DocumentDraft? {
         let paper = batch.paperSheets
         guard !paper.isEmpty else { return nil }
@@ -65,8 +77,15 @@ public struct BatchReader: Sendable {
             draft.setPages(pages, encodedAs: encoding)
         } else {
             let evidence = DocumentEvidence(text: text, today: today)
-            let index = try await indexStore.current(root: root)
-            let result = await suggester.suggest(evidence, index: index, feedback: feedbackStore.load())
+            let result: SuggestionResult
+            if suggests {
+                let index = try await indexStore.current(root: root)
+                result = await suggester.suggest(evidence, index: index, feedback: feedbackStore.load())
+            } else {
+                result = SuggestionResult(suggestion: .inbox(title: "Scan", fileName: "Scan \(Self.scanTime.string(from: .now))",
+                                                             reason: "Suggestions are turned off."),
+                                          source: .heuristic(why: "suggestions are turned off"), candidates: [], promptTokens: nil, elapsed: .zero)
+            }
             var suggestion = result.suggestion
             if suggestion.confidence == .low, whenUnsure == .inbox {
                 suggestion.folderPath = CandidateRanker.inboxName

@@ -14,6 +14,8 @@ let usage = """
            scankit scan [--root <cabinet>] [--out <dir> | --file <path.pdf>] [--photos-dir <dir>] [--no-model]
 
     --color is automatic (the default), color, or grayscale. --fronts-only reads every side, then leaves out the back of each sheet.
+    `scan --no-suggest` skips the name and folder suggestion, for an agent that chooses them itself: the document is named
+    for when it was scanned and goes to the Inbox.
     Images are a duplex scan in feeder order at 300 dpi: front, back, front, back, ...
     `file` refuses any cabinet inside iCloud Drive; point it at a copy made by script/mirror-tree.
     Photos are never added to the photo library; `file` writes them to --photos-dir instead.
@@ -67,11 +69,13 @@ struct Arguments {
     /// Keeps the CLI's index, feedback, and staging out of the app's Application Support.
     func reader(root: URL) throws -> BatchReader {
         let support = FileManager.default.temporaryDirectory.appending(path: "scankit-\(ProcessInfo.processInfo.processIdentifier)")
-        return BatchReader(root: root,
-                           indexStore: FolderIndexStore(cacheURL: support.appending(path: "index.json")),
-                           suggester: FilingSuggester(useModel: !flags.contains("--no-model")),
-                           feedbackStore: FilingFeedbackStore(url: support.appending(path: "feedback.json")),
-                           stagingDirectory: support.appending(path: "Staging"), colorMode: try colorMode())
+        var reader = BatchReader(root: root,
+                                 indexStore: FolderIndexStore(cacheURL: support.appending(path: "index.json")),
+                                 suggester: FilingSuggester(useModel: !flags.contains("--no-model")),
+                                 feedbackStore: FilingFeedbackStore(url: support.appending(path: "feedback.json")),
+                                 stagingDirectory: support.appending(path: "Staging"), colorMode: try colorMode())
+        reader.suggests = !flags.contains("--no-suggest")
+        return reader
     }
 
     var pageSelection: PageSelection { flags.contains("--fronts-only") ? .frontsOnly : .allSides }
