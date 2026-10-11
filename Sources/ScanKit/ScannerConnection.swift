@@ -55,6 +55,10 @@ struct ScannerConnection: Sendable {
         return reply.payload
     }
 
+    func job(_ bytes: [UInt8], replyLength: Int) async throws -> [UInt8] {
+        try await exchange(ESCI2.jobRequest(bytes, replyLength: replyLength), expecting: .jobReply)
+    }
+
     func request(_ bytes: [UInt8], replyLength: Int) async throws -> [UInt8] {
         try await exchange(ESCI2.request(bytes, replyLength: replyLength), expecting: .reply)
     }
@@ -69,8 +73,8 @@ struct ScannerConnection: Sendable {
         if greeting.payload.count > 2, greeting.payload[2] == 0x81 { throw ScannerError.busy }
     }
 
-    func lock() async throws {
-        let reply = try await exchange(ESCI2.packet(.lock, payload: ESCI2.lockPayload), expecting: .lockReply)
+    func lock(_ payload: [UInt8] = ESCI2.lockPayload) async throws {
+        let reply = try await exchange(ESCI2.packet(.lock, payload: payload), expecting: .lockReply)
         guard reply == [ESCI2.acknowledge] else { throw ScannerError.unexpectedReply("lock answered \(ESCI2.hex(reply))") }
     }
 
