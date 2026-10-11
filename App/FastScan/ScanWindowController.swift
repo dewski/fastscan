@@ -271,6 +271,20 @@ final class ScanWindowController: NSWindowController, ScreenContext, NSWindowDel
         }
     }
 
+    /// Closing the window quits the app, so leaving the File screen this way would lose the scan.
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard screenKind == .file, sender.attachedSheet == nil else { return true }
+        let alert = NSAlert()
+        alert.messageText = "Close without filing?"
+        alert.informativeText = "This scan hasn't been filed yet. If you close FastScan now, it will be lost."
+        alert.addButton(withTitle: "Close").hasDestructiveAction = true
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: sender) { response in
+            if response == .alertFirstButtonReturn { sender.close() }
+        }
+        return false
+    }
+
     override func cancelOperation(_ sender: Any?) {
         switch job.state {
         case .starting, .scanning: job.stop()
