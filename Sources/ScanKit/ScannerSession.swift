@@ -126,6 +126,21 @@ public actor ScannerSession {
         }
     }
 
+    /// Asks the scanner what it can do: `FS Y`, `CAPA`, `FIN`, as ScanSmart does when it opens,
+    /// with the page lengths `open` already read from `EXI`.
+    public func capabilities() async throws -> ScannerCapabilities {
+        guard let connection else { throw ScannerError.notOpen }
+        do {
+            try await enter("Y")
+            let capa = try await connection.command("CAPA").data
+            try await finishMode()
+            return try ScannerCapabilities(capa: capa, exi: exi)
+        } catch {
+            await fail(error)
+            throw error
+        }
+    }
+
     /// Checks that the scanner could start a scan, as ScanSmart does before each one: `FS Y`,
     /// `STAT`, `FIN`. Throws `ScannerError.feederEmpty` with no paper loaded, and `jammed` or
     /// `doubleFeed` for one that hasn't been cleared yet.

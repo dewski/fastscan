@@ -5,6 +5,7 @@ import ScanKit
 let usage = """
     usage: scankit discover
            scankit info
+           scankit capabilities
            scankit ocr <image...>
            scankit process <image...> -o out.pdf [--color <mode>]
            scankit suggest <image...> --root <cabinet> [--no-model] [--color <mode>] [--fronts-only] [--pages-dir <dir>]
@@ -205,6 +206,22 @@ do {
         try await session.open(endpoint)
         for line in await session.details() { print("  \(line)") }
         await session.close()
+    case "capabilities":
+        guard let endpoint = try await ScannerDiscovery.discover(timeout: .seconds(10), firstOnly: true).first else {
+            throw CLIError("No Epson scanner found on the local network.")
+        }
+        let session = ScannerSession()
+        try await session.open(endpoint)
+        let capabilities: ScannerCapabilities
+        do {
+            capabilities = try await session.capabilities()
+        } catch {
+            await session.close()
+            throw error
+        }
+        await session.close()
+        print("\(endpoint.name) at \(endpoint.ipv4)\n")
+        print(describe(capabilities))
     case "ocr":
         for path in arguments.positional {
             for line in try await TextRecognizer.recognize(PageProcessor.crop(try loadImage(path), dpi: 300)) { print(line.text) }
@@ -289,6 +306,35 @@ do {
     let detail = error is ScannerError ? " [\(error)]" : ""
     FileHandle.standardError.write(Data("error: \(error.localizedDescription)\(detail)\n".utf8))
     exit(1)
+}
+
+/// What the scanner reports, then what FastScan can scan with today, kept apart so nothing listed
+/// only by the scanner reads as supported.
+func describe(_ capabilities: ScannerCapabilities) -> String {
+    func inches(_ hundredths: Int) -> String { String(format: "%.2f in", Double(hundredths) / 100) }
+    let lengths = Set(capabilities.normalSpeedLength.keys).union(capabilities.maximumLength.keys).sorted().map { dpi in
+        let normal = capabilities.normalSpeedLength[dpi].map { "\(inches($0)) at normal speed, " } ?? ""
+        return "\(dpi) dpi: \(normal)up to \(capabilities.maximumLength[dpi].map(inches) ?? "?")"
+    }
+    let twoSided = capabilities.feederOptions.contains("DPLX")
+    // What every scan uses today, from the same settings the app and `scan` use.
+    let defaults = fastScanSettings
+    let scanResolutions = capabilities.scanResolutions.map(String.init).joined(separator: " or ")
+    return """
+        The scanner reports:
+          Resolutions:         \(capabilities.resolutions.map(String.init).joined(separator: ", ")) dpi
+          Feeder resolutions:  \(capabilities.feederResolutions.map(String.init).joined(separator: ", ")) dpi
+          Color modes:         \(capabilities.colorModes.joined(separator: ", "))
+          Formats:             \(capabilities.formats.joined(separator: ", "))
+          JPEG quality:        \(capabilities.jpegQuality.map { "\($0.lowerBound)–\($0.upperBound)" } ?? "not reported")
+          Feeder options:      \(capabilities.feederOptions.joined(separator: ", "))
+          Page lengths:        \(lengths.joined(separator: "\n                       "))
+
+        FastScan can scan with:
+          Sides:       \(twoSided ? "one-sided or two-sided" : "one-sided") (default: \(defaults.sides == .duplex ? "two-sided" : "one-sided"))
+          Resolution:  \(scanResolutions.isEmpty ? "none (no page length reported)" : "\(scanResolutions) dpi") (default: \(defaults.dpi))
+          Color:       color (C024) (default: \(defaults.color.rawValue))
+        """
 }
 
 extension String {
