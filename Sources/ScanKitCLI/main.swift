@@ -12,7 +12,7 @@ let usage = """
            scankit undo <receipt.json>
            scankit tree [<folder>] --root <cabinet>
            scankit scan [--root <cabinet>] [--out <dir> | --file <path.pdf>] [--photos-dir <dir>] [--no-model]
-           scankit watch --out <dir> [--root <cabinet>] [--photos-dir <dir>] [--interval <seconds>] [--no-model]
+           scankit watch --out <dir> [--root <cabinet>] [--photos-dir <dir>] [--interval <seconds> | --on-button] [--no-model]
 
     --color is automatic (the default), color, or grayscale. --fronts-only reads every side, then leaves out the back of each sheet.
     `scan --no-suggest` skips the name and folder suggestion, for an agent that chooses them itself: the document is named
@@ -25,7 +25,8 @@ let usage = """
     <out>/.scankit/receipts. --file writes the document to exactly that PDF. Photos go to --photos-dir, or <out>/.scankit/photos.
     After a jam, what was scanned before it is saved, and `scan` exits with status 3.
     `watch` does the same with --out for each stack as it's loaded, checking for paper every --interval seconds (2 by default).
-    Ctrl-C stops it; during a scan, what came through is filed first.
+    Ctrl-C stops it; during a scan, what came through is filed first. With --on-button, it scans when the scanner's start
+    button is pressed instead; Epson Event Manager has to be quit, since it answers the button on the same port.
     """
 
 struct CLIError: LocalizedError {

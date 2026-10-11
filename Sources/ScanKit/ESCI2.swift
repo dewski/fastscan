@@ -15,11 +15,23 @@ enum ESCI2 {
         case unlockReply = 0xA101
         case request = 0x2000
         case reply = 0xA000
+        /// A job request, after the scanner's start button ("Job sessions").
+        case job = 0x2300
+        case jobReply = 0xA300
     }
 
     static let headerLength = 12
     /// The lock payload ScanSmart sends. Its fields' meanings are unknown; the last two bytes are 300.
     static let lockPayload: [UInt8] = [0x01, 0xA0, 0x04, 0x00, 0x00, 0x01, 0x2C]
+    /// The lock ScanSmart's short job sessions send, ending in 30 instead of 300.
+    static let jobLockPayload: [UInt8] = [0x01, 0xA0, 0x04, 0x00, 0x00, 0x00, 0x1E]
+    /// ScanSmart's `JOBW`, as captured: a job named "Dummy". The other fields' meanings are unknown.
+    static let jobWrite: [UInt8] = Array("JOBW".utf8) + [UInt8](repeating: 0, count: 16)
+        + [0x01, 0x1A, 0x18, 0x00, 0x00, 0x00, 0x00, 0x0A, 0x00, 0x00]
+        + Array("Dummy".utf16).flatMap { [UInt8($0 & 0xFF), UInt8($0 >> 8)] }
+        + [0x03, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x02, 0x01, 0x00]
+    /// ScanSmart's `JOBR`, which reads 8 bytes back.
+    static let jobRead: [UInt8] = Array("JOBR".utf8)
     /// The one-byte reply to a lock or a mode byte.
     static let acknowledge: UInt8 = 0x06
 
@@ -39,6 +51,14 @@ enum ESCI2 {
     }
 
     /// A `20 00` request: the data header (length of `bytes`, then the expected reply length), then `bytes`.
+    /// A `23 00` job request: the same data header as a `20 00` request.
+    static func jobRequest(_ bytes: [UInt8], replyLength: Int) -> [UInt8] {
+        var payload: [UInt8] = []
+        payload.appendBigEndian(UInt32(bytes.count))
+        payload.appendBigEndian(UInt32(replyLength))
+        return packet(.job, payload: payload + bytes)
+    }
+
     static func request(_ bytes: [UInt8], replyLength: Int) -> [UInt8] {
         var payload: [UInt8] = []
         payload.appendBigEndian(UInt32(bytes.count))

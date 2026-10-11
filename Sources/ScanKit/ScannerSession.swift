@@ -109,6 +109,23 @@ public actor ScannerSession {
         }
     }
 
+    /// Writes and reads back the job a button press waits for, as ScanSmart does between answering
+    /// `JobList` and `PushScan`: two short sessions, each the greeting, a lock, one `23 00` request
+    /// and the unlock ("Job sessions").
+    public static func acceptButtonJob(at endpoint: ScannerEndpoint) async throws {
+        try await acceptButtonJob(NetworkTransport(host: endpoint.ipv4, port: endpoint.port), NetworkTransport(host: endpoint.ipv4, port: endpoint.port))
+    }
+
+    static func acceptButtonJob(_ write: any ScannerTransport, _ read: any ScannerTransport) async throws {
+        for (transport, request, replyLength) in [(write, ESCI2.jobWrite, 0), (read, ESCI2.jobRead, 8)] {
+            let connection = ScannerConnection(transport: transport)
+            try await connection.awaitGreeting()
+            try await connection.lock(ESCI2.jobLockPayload)
+            _ = try await connection.job(request, replyLength: replyLength)
+            try await connection.unlock()
+        }
+    }
+
     /// Checks that the scanner could start a scan, as ScanSmart does before each one: `FS Y`,
     /// `STAT`, `FIN`. Throws `ScannerError.feederEmpty` with no paper loaded, and `jammed` or
     /// `doubleFeed` for one that hasn't been cleared yet.

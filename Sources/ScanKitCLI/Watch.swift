@@ -5,6 +5,8 @@ import ScanKit
 @MainActor
 func watch(_ arguments: Arguments) async throws {
     guard let output = try ScanOutput(arguments), let out = output.cabinet else { throw CLIError("watch needs --out <dir>") }
+    // One line at a time, even into a pipe or a log file.
+    setvbuf(stdout, nil, _IOLBF, 0)
     let root = arguments.options["--root"] == nil ? out : try arguments.root()
     let interval = Duration.seconds(Double(arguments.options["--interval"] ?? "2") ?? 2)
     let photos = arguments.options["--photos-dir"].map { URL(filePath: $0, directoryHint: .isDirectory) }
@@ -13,13 +15,52 @@ func watch(_ arguments: Arguments) async throws {
 
     await job.discover()
     guard case .ready(let endpoint) = job.state else { throw CLIError(describe(job.state)) }
-    print("Watching \(endpoint.name) at \(endpoint.ipv4). Load a stack to scan it into \(out.path); Ctrl-C to stop.")
+    let button = arguments.flags.contains("--on-button") ? try ScannerButton(scanner: endpoint.ipv4, clientName: ScannerButton.localName) : nil
 
     // Ctrl-C while waiting stops at once; during a scan it stops the scanner, and what came
     // through is filed first. A second Ctrl-C quits right away.
     let interrupt = Interrupt { [job] scanning in
-        if scanning { job.stop() }
+        if scanning { job.stop() } else { button?.stop() }
     }
+
+    if let button {
+        print("Watching \(endpoint.name) at \(endpoint.ipv4). Press its start button to scan a stack into \(out.path); Ctrl-C to stop.")
+        print("Answering the scanner as \(ScannerButton.localName) at \(button.advertisedAddress).")
+        for await event in button.events {
+            switch event {
+            case .asked:
+                print("The scanner's button was pressed; answered.")
+            case .request(.jobList(let capabilities)):
+                print("The scanner sent its job list (\(capabilities.joined(separator: ", "))); answered OK.")
+                // The scanner waits for this job before it asks for the scan.
+                do {
+                    try await ScannerSession.acceptButtonJob(at: endpoint)
+                    print("Wrote and read back the job.")
+                } catch {
+                    print("error writing the job: \(error.localizedDescription)")
+                }
+            case .request(.pushScan(let number)):
+                print("The scanner asked for job \(number); scanning…")
+                interrupt.scanning = true
+                do {
+                    let result = try await scanStack(job, to: output, photosDirectory: photos, printReport: false)
+                    report(result, under: out)
+                } catch {
+                    print("error: \(error.localizedDescription)")
+                }
+                interrupt.scanning = false
+                if interrupt.requested { button.stop() }
+            case .request(.scanEnd):
+                print("The scanner says the scan is over.")
+            case .request(.other(let name)):
+                print("The scanner sent \(name.isEmpty ? "a request FastScan doesn't know" : name); answered OK.")
+            }
+        }
+        print("Stopped.")
+        return
+    }
+
+    print("Watching \(endpoint.name) at \(endpoint.ipv4). Load a stack to scan it into \(out.path); Ctrl-C to stop.")
 
     var notice: String?
     func say(_ message: String) {
@@ -39,10 +80,7 @@ func watch(_ arguments: Arguments) async throws {
             say("Scanning…")
             interrupt.scanning = true
             defer { interrupt.scanning = false }
-            let result = try await scanStack(job, to: output, photosDirectory: photos, printReport: false)
-            let name = result.savedTo.map { URL(filePath: $0).path.replacingOccurrences(of: out.path + "/", with: "") } ?? "nothing (no paper pages)"
-            print("Filed \(name): \(result.pages) page(s), \(result.photos) photo(s)\(result.receipt.map { "; receipt \($0)" } ?? "")")
-            if result.jammed { print("The paper jammed; the pages before the jam were filed. Clear the scanner and load the rest.") }
+            report(try await scanStack(job, to: output, photosDirectory: photos, printReport: false), under: out)
             notice = nil
         } catch ScannerError.feederEmpty {
             say("Waiting for paper…")
@@ -57,6 +95,12 @@ func watch(_ arguments: Arguments) async throws {
         try? await Task.sleep(for: interval)
     }
     print("Stopped.")
+}
+
+private func report(_ result: ScanReport, under out: URL) {
+    let name = result.savedTo.map { URL(filePath: $0).path.replacingOccurrences(of: out.path + "/", with: "") } ?? "nothing (no paper pages)"
+    print("Filed \(name): \(result.pages) page(s), \(result.photos) photo(s)\(result.receipt.map { "; receipt \($0)" } ?? "")")
+    if result.jammed { print("The paper jammed; the pages before the jam were filed. Clear the scanner and load the rest.") }
 }
 
 /// Opens a session only long enough to ask whether the scanner could start a scan.
