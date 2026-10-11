@@ -1,7 +1,9 @@
-A small fix to the Settings window.
+Clearer scanner messages, and a few fixes.
 
 ## What's new
 
+- Scanner problems are explained in plain language. A busy scanner says another app or computer is using it, and an unexpected error says what to try next instead of showing the scanner's raw details.
+- Stopping a scan before any page comes through, in FastScan or on the scanner, goes back to the ready screen.
 - In Settings, the labels now line up with the text in their menus.
 
 Coming from 0.2.0? Version 0.3.0 replaced SANE with FastScan's own scanner client, which talks to the Epson FF-680W directly. It also added clearer messages when the scanner needs attention, and asks before you close the window on a scan that isn't filed.
