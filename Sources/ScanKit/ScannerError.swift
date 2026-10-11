@@ -46,15 +46,14 @@ extension ScannerError: LocalizedError {
         case .cancelled: "The scan was cancelled."
         case .stoppedAtScanner: "The scan was stopped at the scanner."
         case .notOpen: "The scanner connection isn't open."
-        case .busy: "The scanner is busy. Try again in a moment."
-        case .unsupportedScanner(let product): "FastScan works with the Epson FF-680W, not \(product)."
+        case .busy: "Another app or computer is using the scanner. Try again when it's done."
+        case .unsupportedScanner(let product): "FastScan only works with the Epson FastFoto FF-680W, and this scanner is a \(product)."
         case .unsupportedSettings(let reason): "The scanner can't scan that way: \(reason)."
-        case .scannerReported(let code): "The scanner reported error \(code)."
-        case .unexpectedReply(let detail): "The scanner sent an unexpected reply: \(detail)"
-        case .malformed(let detail): "The scanner sent a reply FastScan couldn't read: \(detail)"
-        // The detail stays in the error for logs; the wording is FastScan's original.
+        // Details stay in the error value for the scankit CLI and logs; people get what to do next.
+        case .scannerReported: "The scanner stopped with an error. Check it for a message or stuck paper, then try again."
+        case .unexpectedReply, .malformed: "There was a problem communicating with the scanner. Turn the scanner off and on again, then try again."
         case .connection: "Lost contact with the scanner."
-        case .undecodableImage(let side): "The scanner sent a \(side.rawValue) side that isn't a readable JPEG."
+        case .undecodableImage: "A page from the scanner couldn't be read. Try scanning again."
         }
     }
 }

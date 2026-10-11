@@ -262,7 +262,9 @@ do {
         exit(64)
     }
 } catch {
-    FileHandle.standardError.write(Data("error: \(error.localizedDescription)\n".utf8))
+    // The scanner's own details, which the app leaves out of its messages.
+    let detail = error is ScannerError ? " [\(error)]" : ""
+    FileHandle.standardError.write(Data("error: \(error.localizedDescription)\(detail)\n".utf8))
     exit(1)
 }
 
