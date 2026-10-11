@@ -1,10 +1,10 @@
-FastScan now talks to your scanner directly, with nothing else inside the app.
+A small fix to the Settings window.
 
 ## What's new
 
-- FastScan has its own scanner client. It speaks the Epson FF-680W's network protocol itself instead of going through SANE, so the app no longer bundles a driver.
-- Clearer handling when the scanner needs attention: paper jams, double feeds, an open cover, the scanner's Stop button, and a scanner that another app is using.
-- Closing the window before you file a scan now asks first, so a scan isn't lost by accident.
+- In Settings, the labels now line up with the text in their menus.
+
+Coming from 0.2.0? Version 0.3.0 replaced SANE with FastScan's own scanner client, which talks to the Epson FF-680W directly. It also added clearer messages when the scanner needs attention, and asks before you close the window on a scan that isn't filed.
 
 ## What it does
 
@@ -21,13 +21,13 @@ FastScan now talks to your scanner directly, with nothing else inside the app.
 
 ## Install
 
-1. Download `FastScan-0.3.0.zip` below and unzip it.
+1. Download `FastScan-0.3.1.zip` below and unzip it.
 2. Move `FastScan.app` to your Applications folder, and open it.
 3. When macOS asks whether FastScan may find devices on your local network, choose **Allow**.
 4. Open **Settings** (⌘,) and choose your filing cabinet folder. It starts as `~/Documents/Scans`.
 
-To check the download, compare it with `FastScan-0.3.0.zip.sha256`:
+To check the download, compare it with `FastScan-0.3.1.zip.sha256`:
 
 ```sh
-shasum -a 256 -c FastScan-0.3.0.zip.sha256
+shasum -a 256 -c FastScan-0.3.1.zip.sha256
 ```
