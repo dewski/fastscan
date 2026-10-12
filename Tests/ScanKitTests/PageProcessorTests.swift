@@ -52,6 +52,34 @@ import Testing
         #expect(cropped.height == 4642, "\(cropped.width)x\(cropped.height)")
     }
 
+    /// Some paper scans light gray, close to the backing. An FF-680W page it had already cropped:
+    /// 8.39 x 11.06 in, paper ~230, a table in the top half, a note in the right margin, then blank.
+    @Test func keepsBlankGrayPaperBelowTheContent() {
+        var page = SyntheticPage(width: 2517)
+        page.paper(3318, textLines: 15, level: 230, noise: 4)
+        page.fill(columns: 2400..<2480, rows: 1900..<1980, level: 40)
+
+        let cropped = PageProcessor.crop(page.image, dpi: 300)
+
+        #expect(cropped.width >= 2517 - 24, "width \(cropped.width)")
+        #expect(cropped.height >= 3318 - 24, "height \(cropped.height)")
+    }
+
+    /// Gray paper still loses the backing band below it: backing sits ~20 levels under the paper.
+    @Test func cropsBackingBelowGrayPaper() {
+        var frame = SyntheticPage(width: 2544)
+        frame.rows(12, level: 210, noise: 2)
+        frame.paper(3300, textLines: 20, level: 230, noise: 4)
+        frame.rows(24, level: 150, noise: 60)
+        frame.rows(105, level: 210, noise: 2)
+        frame.rows(4642 - frame.height, level: 255)
+
+        let cropped = PageProcessor.crop(frame.image, dpi: 300)
+
+        #expect(cropped.width == 2544)
+        #expect(abs(cropped.height - 3300) <= 12, "height \(cropped.height)")
+    }
+
     @Test func blankPageWithNoiseSpecksAndBleedThroughIsBlank() {
         var page = SyntheticPage(width: 2544)
         page.rows(3300, level: 248, noise: 8)

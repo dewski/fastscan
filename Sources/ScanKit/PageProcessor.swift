@@ -92,13 +92,28 @@ public enum PageProcessor {
 struct LineStats {
     var mean: Double
     var deviation: Double
+    /// Share of pixels at least as bright as the page's paper, per `PaperThresholds.bright`.
     var brightFraction: Double
     var minimum: UInt8
+    var backingCeiling: Double = 232
 
     /// Mostly paper-white, which also holds for a line that crosses a narrow page and backing.
     var isPaper: Bool { brightFraction >= 0.5 }
     var isFill: Bool { minimum >= 254 }
-    var isBacking: Bool { (150...232).contains(mean) && deviation <= 6 }
+    var isBacking: Bool { (150...backingCeiling).contains(mean) && deviation <= 6 }
+}
+
+/// What counts as paper and as backing on one page. White paper uses fixed levels, but some paper
+/// scans light gray (~230), as flat as the backing, so both thresholds drop below the paper's own level.
+struct PaperThresholds {
+    var bright: UInt8
+    var backingCeiling: Double
+
+    /// `paper` is the page's brightest common level, which is the paper wherever it shows at all.
+    init(paper: Int) {
+        bright = UInt8(clamping: min(235, paper - 15))
+        backingCeiling = Double(min(232, paper - 20))
+    }
 }
 
 /// An 8-bit grayscale copy of an image, box-averaged by an integer factor. Row 0 is the top.
@@ -108,6 +123,7 @@ struct GrayRaster {
     private var pixels: [UInt8]
     /// Darkest full-resolution pixel under each raster row; box averaging would hide paper noise.
     private var rowMinimum: [UInt8]
+    private var thresholds = PaperThresholds(paper: 255)
 
     init(_ image: CGImage, downsample factor: Int) {
         let fullWidth = image.width, fullHeight = image.height
@@ -122,6 +138,7 @@ struct GrayRaster {
         rowMinimum = (0..<height).map { y in full[(y * factor * fullWidth)..<((y + 1) * factor * fullWidth)].min() ?? 255 }
         guard factor > 1 else {
             pixels = full
+            thresholds = PaperThresholds(paper: paperLevel())
             return
         }
         var reduced = [UInt8](repeating: 0, count: width * height)
@@ -137,6 +154,25 @@ struct GrayRaster {
             }
         }
         pixels = reduced
+        thresholds = PaperThresholds(paper: paperLevel())
+    }
+
+    /// The 99th percentile of the middle 80% of each row, skipping fill: paper even when backing
+    /// covers most of the frame, while ignoring stray bright noise.
+    private func paperLevel() -> Int {
+        var histogram = [Int](repeating: 0, count: 256)
+        let inset = width / 10
+        for y in 0..<height where rowMinimum[y] < 254 {
+            for x in inset..<(width - inset) where self[x, y] < 255 { histogram[Int(self[x, y])] += 1 }
+        }
+        let total = histogram.reduce(0, +)
+        guard total > 0 else { return 255 }
+        var running = 0
+        for (level, count) in histogram.enumerated() {
+            running += count
+            if Double(running) >= Double(total) * 0.99 { return level }
+        }
+        return 255
     }
 
     subscript(x: Int, y: Int) -> UInt8 { pixels[y * width + x] }
@@ -145,20 +181,24 @@ struct GrayRaster {
     /// mask the paper.
     func lineStats(row y: Int) -> LineStats {
         let inset = width / 10
-        return Self.stats((inset..<(width - inset)).map { self[$0, y] }, minimum: rowMinimum[y])
+        return stats((inset..<(width - inset)).map { self[$0, y] }, minimum: rowMinimum[y])
     }
 
     func lineStats(column x: Int, rows: Range<Int>) -> LineStats {
         let values = rows.map { self[x, $0] }
-        return Self.stats(values, minimum: values.min() ?? 255)
+        return stats(values, minimum: values.min() ?? 255)
     }
 
-    private static func stats(_ values: [UInt8], minimum: UInt8) -> LineStats {
-        guard !values.isEmpty else { return LineStats(mean: 255, deviation: 0, brightFraction: 1, minimum: minimum) }
+    private func stats(_ values: [UInt8], minimum: UInt8) -> LineStats {
+        let ceiling = thresholds.backingCeiling
+        guard !values.isEmpty else {
+            return LineStats(mean: 255, deviation: 0, brightFraction: 1, minimum: minimum, backingCeiling: ceiling)
+        }
         let count = Double(values.count)
         let mean = values.reduce(0.0) { $0 + Double($1) } / count
         let variance = values.reduce(0.0) { $0 + (Double($1) - mean) * (Double($1) - mean) } / count
-        let bright = Double(values.count { $0 >= 235 }) / count
-        return LineStats(mean: mean, deviation: variance.squareRoot(), brightFraction: bright, minimum: minimum)
+        let bright = Double(values.count { $0 >= thresholds.bright }) / count
+        return LineStats(mean: mean, deviation: variance.squareRoot(), brightFraction: bright, minimum: minimum,
+                         backingCeiling: ceiling)
     }
 }
