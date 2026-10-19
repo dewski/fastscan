@@ -12,6 +12,7 @@ func watch(_ arguments: Arguments) async throws {
     let photos = arguments.options["--photos-dir"].map { URL(filePath: $0, directoryHint: .isDirectory) }
     let job = ScanJob(reader: try arguments.reader(root: root),
                       photoWriter: DryRunPhotoWriter(directory: FileManager.default.temporaryDirectory.appending(path: "scankit-photos")))
+    job.settings = try arguments.scanSettings()
 
     await job.discover()
     guard case .ready(let endpoint) = job.state else { throw CLIError(describe(job.state)) }

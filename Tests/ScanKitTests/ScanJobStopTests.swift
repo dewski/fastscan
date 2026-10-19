@@ -67,6 +67,33 @@ import UniformTypeIdentifiers
         #expect(await script.unmatched == [])
     }
 
+    @Test func chosenSettingsReachTheScanner() async {
+        // The script expects the one-sided 600 dpi PARA block; anything else is unmatched.
+        let script = ScriptedScanner(
+            ScriptedScanner.opening()
+                + ScriptedScanner.startingScan(sides: .front, dpi: 600, length: 1550)
+                + ScriptedScanner.command("IMG", tokens: "#typIMGA#atnCAN ")
+                + ScriptedScanner.command("CAN") + ScriptedScanner.command("FIN") + [ScriptedScanner.unlock]
+        )
+        let job = job(script)
+        job.settings = ScanSettings(sides: .front, color: .color, dpi: 600)
+        await job.scan()
+        #expect(job.state == .ready(scanner))
+        #expect(await script.unmatched == [])
+        #expect(await script.finished)
+    }
+
+    @Test func aResolutionWithoutAPageLengthFails() async {
+        let job = job(ScriptedScanner(ScriptedScanner.opening()))
+        job.settings = ScanSettings(sides: .duplex, color: .color, dpi: 400)
+        await job.scan()
+        guard case .failed(_, let message) = job.state else {
+            Issue.record("expected a failure, got \(job.state)")
+            return
+        }
+        #expect(message.contains("400 dpi"))
+    }
+
     static func jpeg(_ image: CGImage) throws -> [UInt8] {
         let data = NSMutableData()
         let destination = try #require(CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil))
