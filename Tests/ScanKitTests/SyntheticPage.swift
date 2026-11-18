@@ -19,9 +19,9 @@ struct SyntheticPage {
     }
 
     /// Paper rows with "text": dark bars in a regular pattern inside 0.5 in margins.
-    mutating func paper(_ count: Int, textLines: Int, level: UInt8 = 250) {
+    mutating func paper(_ count: Int, textLines: Int, level: UInt8 = 250, noise: Int = 3) {
         let start = height
-        rows(count, level: level, noise: 3)
+        rows(count, level: level, noise: noise)
         let lineHeight = 30, margin = 150
         for line in 0..<textLines {
             let top = start + margin + line * lineHeight * 2

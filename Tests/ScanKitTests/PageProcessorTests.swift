@@ -52,15 +52,45 @@ import Testing
         #expect(cropped.height == 4642, "\(cropped.width)x\(cropped.height)")
     }
 
-    /// A uniform mid-gray side, like the plain back of a photo, reads as backing all the way up.
-    @Test func leavesAnAllBackingFrameUncut() {
+    /// A uniform mid-gray side, like the plain back of a photo, once read as backing all the way up
+    /// and crashed the crop. Measured against its own paper level it is paper, so only the fill goes.
+    @Test func keepsAUniformGraySideWhole() {
         var frame = SyntheticPage(width: 2544)
         frame.rows(3300, level: 200, noise: 2)
         frame.rows(4642 - frame.height, level: 255)
 
         let cropped = PageProcessor.crop(frame.image, dpi: 300)
 
-        #expect(cropped.height == 4642, "\(cropped.width)x\(cropped.height)")
+        #expect(cropped.width == 2544, "\(cropped.width)x\(cropped.height)")
+        #expect(abs(cropped.height - 3300) <= 12, "\(cropped.width)x\(cropped.height)")
+    }
+
+    /// Some paper scans light gray, close to the backing. An FF-680W page it had already cropped:
+    /// 8.39 x 11.06 in, paper ~230, a table in the top half, a note in the right margin, then blank.
+    @Test func keepsBlankGrayPaperBelowTheContent() {
+        var page = SyntheticPage(width: 2517)
+        page.paper(3318, textLines: 15, level: 230, noise: 4)
+        page.fill(columns: 2400..<2480, rows: 1900..<1980, level: 40)
+
+        let cropped = PageProcessor.crop(page.image, dpi: 300)
+
+        #expect(cropped.width >= 2517 - 24, "width \(cropped.width)")
+        #expect(cropped.height >= 3318 - 24, "height \(cropped.height)")
+    }
+
+    /// Gray paper still loses the backing band below it: backing sits ~20 levels under the paper.
+    @Test func cropsBackingBelowGrayPaper() {
+        var frame = SyntheticPage(width: 2544)
+        frame.rows(12, level: 210, noise: 2)
+        frame.paper(3300, textLines: 20, level: 230, noise: 4)
+        frame.rows(24, level: 150, noise: 60)
+        frame.rows(105, level: 210, noise: 2)
+        frame.rows(4642 - frame.height, level: 255)
+
+        let cropped = PageProcessor.crop(frame.image, dpi: 300)
+
+        #expect(cropped.width == 2544)
+        #expect(abs(cropped.height - 3300) <= 12, "height \(cropped.height)")
     }
 
     @Test func blankPageWithNoiseSpecksAndBleedThroughIsBlank() {
