@@ -52,15 +52,17 @@ import Testing
         #expect(cropped.height == 4642, "\(cropped.width)x\(cropped.height)")
     }
 
-    /// A uniform mid-gray side, like the plain back of a photo, reads as backing all the way up.
-    @Test func leavesAnAllBackingFrameUncut() {
+    /// A uniform mid-gray side, like the plain back of a photo, once read as backing all the way up
+    /// and crashed the crop. Measured against its own paper level it is paper, so only the fill goes.
+    @Test func keepsAUniformGraySideWhole() {
         var frame = SyntheticPage(width: 2544)
         frame.rows(3300, level: 200, noise: 2)
         frame.rows(4642 - frame.height, level: 255)
 
         let cropped = PageProcessor.crop(frame.image, dpi: 300)
 
-        #expect(cropped.height == 4642, "\(cropped.width)x\(cropped.height)")
+        #expect(cropped.width == 2544, "\(cropped.width)x\(cropped.height)")
+        #expect(abs(cropped.height - 3300) <= 12, "\(cropped.width)x\(cropped.height)")
     }
 
     /// Some paper scans light gray, close to the backing. An FF-680W page it had already cropped:
