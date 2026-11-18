@@ -82,6 +82,8 @@ public enum PageProcessor {
             y = band
             while y >= 0, rows[y].isBacking { y -= 1 }
         }
+        // Backing all the way up means no paper was found, so `crop` leaves the frame uncut.
+        guard y >= 0 else { return rows.count }
         // The shadow can sit a few near-white rows above the fill, so cut above the highest
         // non-paper row near the edge rather than stopping at the first paper-like row.
         if let shadowTop = (max(0, y - maxEdge)...y).first(where: { !rows[$0].isPaper }) { y = shadowTop - 1 }

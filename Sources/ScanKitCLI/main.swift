@@ -12,8 +12,8 @@ let usage = """
            scankit file <image...> --root <cabinet> --receipt <receipt.json> [--no-model] [--color <mode>] [--fronts-only] [--photos-dir <dir>]
            scankit undo <receipt.json>
            scankit tree [<folder>] --root <cabinet>
-           scankit scan [--root <cabinet>] [--out <dir> | --file <path.pdf>] [--photos-dir <dir>] [--no-model]
-           scankit watch --out <dir> [--root <cabinet>] [--photos-dir <dir>] [--interval <seconds> | --on-button] [--no-model]
+           scankit scan [--root <cabinet>] [--out <dir> | --file <path.pdf>] [--photos-dir <dir>] [--dpi <dpi>] [--one-sided] [--no-model]
+           scankit watch --out <dir> [--root <cabinet>] [--photos-dir <dir>] [--interval <seconds> | --on-button] [--dpi <dpi>] [--one-sided] [--no-model]
 
     --color is automatic (the default), color, or grayscale. --fronts-only reads every side, then leaves out the back of each sheet.
     `scan --no-suggest` skips the name and folder suggestion, for an agent that chooses them itself: the document is named
@@ -28,6 +28,8 @@ let usage = """
     `watch` does the same with --out for each stack as it's loaded, checking for paper every --interval seconds (2 by default).
     Ctrl-C stops it; during a scan, what came through is filed first. With --on-button, it scans when the scanner's start
     button is pressed instead; Epson Event Manager has to be quit, since it answers the button on the same port.
+    `scan` and `watch` scan two-sided at 300 dpi unless --dpi or --one-sided says otherwise; `scankit capabilities` lists the
+    choices the scanner supports.
     """
 
 struct CLIError: LocalizedError {
@@ -37,7 +39,7 @@ struct CLIError: LocalizedError {
 
 /// Splits `--flag value` options from positional arguments.
 struct Arguments {
-    static let valued: Set<String> = ["-o", "--root", "--pages-dir", "--receipt", "--photos-dir", "--color", "--out", "--file", "--interval"]
+    static let valued: Set<String> = ["--dpi", "-o", "--root", "--pages-dir", "--receipt", "--photos-dir", "--color", "--out", "--file", "--interval"]
     var positional: [String] = []
     var options: [String: String] = [:]
     var flags: Set<String> = []
@@ -81,6 +83,18 @@ struct Arguments {
                                  stagingDirectory: support.appending(path: "Staging"), colorMode: try colorMode())
         reader.suggests = !flags.contains("--no-suggest")
         return reader
+    }
+
+    /// The default scan, two-sided color at 300 dpi, with `--dpi` and `--one-sided` applied. The
+    /// scanner refuses a resolution it has no page length for when the scan starts.
+    func scanSettings() throws -> ScanSettings {
+        var settings = fastScanSettings
+        if let dpi = options["--dpi"] {
+            guard let value = Int(dpi), value > 0 else { throw CLIError("--dpi needs a resolution, such as 300 or 600") }
+            settings.dpi = value
+        }
+        if flags.contains("--one-sided") { settings.sides = .front }
+        return settings
     }
 
     var pageSelection: PageSelection { flags.contains("--fronts-only") ? .frontsOnly : .allSides }
@@ -283,7 +297,11 @@ do {
         let root = try arguments.options["--root"] == nil ? output?.cabinet ?? arguments.root() : arguments.root()
         let job = await ScanJob(reader: try arguments.reader(root: root),
                                 photoWriter: DryRunPhotoWriter(directory: FileManager.default.temporaryDirectory.appending(path: "scankit-photos")))
-        await MainActor.run { job.onChange = { print(describe($0)) } }
+        let settings = try arguments.scanSettings()
+        await MainActor.run {
+            job.settings = settings
+            job.onChange = { print(describe($0)) }
+        }
         await job.discover()
         guard case .ready = await job.state else { throw CLIError(describe(await job.state)) }
         let result = try await scanStack(job, to: output, photosDirectory: arguments.options["--photos-dir"].map { URL(filePath: $0, directoryHint: .isDirectory) },
@@ -334,6 +352,8 @@ func describe(_ capabilities: ScannerCapabilities) -> String {
           Sides:       \(twoSided ? "one-sided or two-sided" : "one-sided") (default: \(defaults.sides == .duplex ? "two-sided" : "one-sided"))
           Resolution:  \(scanResolutions.isEmpty ? "none (no page length reported)" : "\(scanResolutions) dpi") (default: \(defaults.dpi))
           Color:       color (C024) (default: \(defaults.color.rawValue))
+
+        Choose with --dpi and --one-sided on `scankit scan` and `scankit watch`.
         """
 }
 
